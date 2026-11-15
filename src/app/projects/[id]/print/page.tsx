@@ -5,6 +5,7 @@ import { getCurrentUser, getPrimaryWorkspaceId } from "@/lib/auth/session";
 import { getProject } from "@/lib/projects/service";
 import { resolveSlideTheme } from "@/lib/projects/themes";
 import { parseInlineSegments } from "@/lib/utils/inlineFormat";
+import { resolveParagraphDir } from "@/lib/utils/bidi";
 import { LOCALE_COOKIE, getLocale } from "@/lib/i18n";
 import { PrintButton } from "@/components/PrintButton";
 import { SlideChart } from "@/components/SlideChart";
@@ -115,7 +116,9 @@ function PrintSlideElement({
   const fill = el.fillColor ? `#${el.fillColor.replace(/^#/, "")}` : undefined;
   const border = el.borderColor ? `#${el.borderColor.replace(/^#/, "")}` : undefined;
   const textColor = el.color ? `#${el.color.replace(/^#/, "")}` : `#${themeHexes.bodyHex}`;
-  const textAlign = el.align ?? (el.dir === "rtl" ? "right" : "left");
+  const rawElText = el.text || (el.runs ?? []).map((r) => r.text).join("");
+  const elDir = resolveParagraphDir(rawElText, el.dir, "ltr");
+  const textAlign = el.align ?? (elDir === "rtl" ? "right" : "left");
 
   if (el.kind === "shape") {
     const shape = el.shape ?? "rect";
@@ -158,7 +161,7 @@ function PrintSlideElement({
         )}
         {(el.text || (el.runs && el.runs.length > 0)) && (
           <div
-            dir={el.dir === "rtl" ? "rtl" : "ltr"}
+            dir={elDir}
             style={{
               position: "absolute",
               inset: 4,
@@ -166,6 +169,7 @@ function PrintSlideElement({
               alignItems: "center",
               justifyContent: "center",
               textAlign: el.align ?? "center",
+              unicodeBidi: el.dir ? "isolate" : "plaintext",
               color: textColor,
               fontSize: `${Math.max(9, (el.fontSize ?? 14) * 0.65)}px`,
               fontWeight: el.bold ? 700 : 400,
@@ -183,7 +187,7 @@ function PrintSlideElement({
 
   return (
     <div
-      dir={el.dir === "rtl" ? "rtl" : "ltr"}
+      dir={elDir}
       style={{
         ...boxStyle,
         backgroundColor: fill,
@@ -193,6 +197,7 @@ function PrintSlideElement({
         fontWeight: el.bold ? 700 : 400,
         fontStyle: el.italic ? "italic" : "normal",
         textAlign,
+        unicodeBidi: el.dir ? "isolate" : "plaintext",
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
         padding: 4,

@@ -50,3 +50,8 @@ Status legend: ☐ pending · ◐ in progress · ☑ done (see STATUS.md for evi
 - [x] Interactive 16:9 Slide Canvas editor (`SlideCanvasEditor.tsx`) with draggable/resizable text boxes, inline editing, shapes (`rect`, `roundRect`, `ellipse`, `triangle`, `line`, `arrow`), images, charts, z-index layering, speaker notes, and slide management
 - [x] Real OOXML `.docx` & `.pptx` import (`src/lib/import/docx.ts`, `src/lib/import/pptx.ts`) + `POST /api/projects/import` + round-trip export fidelity & explicit `fidelityWarnings`
 - [x] Automated DOCX/PPTX import → edit → export → reopen round-trip tests and live browser E2E verification
+
+## Phase 7 — Mixed Arabic/English Bidi, Light/Dark Themes & Fullscreen Standalone PWA ☑
+- [x] UAX #9 first-strong auto-RTL + `unicode-bidi: plaintext` across TipTap Word & 16:9 Slide Canvas editors, PDF print view, DOCX (`<w:bidi/>` + `START`/`END` + per-run `w:rtl`), and PPTX (`rtl="1"` per run)
+- [x] Crisp Light Mode & Dark Mode toggle (`ThemeSwitcher`, cookie + SSR `data-ui-theme`) across Landing, Dashboard, and Editors
+- [x] Installable standalone fullscreen PWA (`/manifest.webmanifest`, `/sw.js`, PNG/maskable icons, `PwaInstallButton`, edge-to-edge `FullscreenButton`)

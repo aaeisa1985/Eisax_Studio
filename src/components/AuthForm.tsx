@@ -77,7 +77,7 @@ export function AuthForm({ mode, locale }: { mode: "sign-in" | "sign-up"; locale
         )}
       </div>
       {error && (
-        <p role="alert" className="rounded-lg border p-2.5 text-sm" style={{ borderColor: "#4a2430", color: "#ff8b8b" }}>
+        <p role="alert" className="rounded-lg border p-2.5 text-sm" style={{ borderColor: "var(--danger-border)", color: "var(--danger)" }}>
           {error}
         </p>
       )}

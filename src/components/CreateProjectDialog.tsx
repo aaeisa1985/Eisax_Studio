@@ -188,7 +188,7 @@ export function CreateProjectDialog({
       </div>
 
       {importError && !open && (
-        <p role="alert" className="mt-2 w-full rounded-lg border p-2.5 text-xs" style={{ borderColor: "#4a2430", color: "#ff8b8b" }}>
+        <p role="alert" className="mt-2 w-full rounded-lg border p-2.5 text-xs" style={{ borderColor: "var(--danger-border)", color: "var(--danger)" }}>
           {ar ? "تعذّر استيراد الملف: " : "Import failed: "} {importError}
         </p>
       )}
@@ -305,7 +305,7 @@ export function CreateProjectDialog({
                   />
                 </label>
                 {importError && (
-                  <p role="alert" className="rounded-lg border p-2.5 text-xs" style={{ borderColor: "#4a2430", color: "#ff8b8b" }}>
+                  <p role="alert" className="rounded-lg border p-2.5 text-xs" style={{ borderColor: "var(--danger-border)", color: "var(--danger)" }}>
                     {importError}
                   </p>
                 )}

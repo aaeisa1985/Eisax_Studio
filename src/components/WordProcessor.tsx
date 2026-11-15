@@ -16,7 +16,7 @@ import { blocksToTiptapDoc, tiptapDocToBlocks } from "@/lib/document/tiptapSync"
 import type { ChartData, DocumentBlock, PageLayout } from "@/lib/validation/projects";
 import type { Locale } from "@/lib/i18n";
 
-/** Global per-block `dir` attribute so English, Arabic, RTL & mixed paragraphs co-exist cleanly. */
+/** Global per-block `dir` attribute defaulting to `"auto"` (UAX #9 first-strong Bidi). */
 const DirectionExtension = Extension.create({
   name: "blockDirection",
   addGlobalAttributes() {
@@ -25,12 +25,10 @@ const DirectionExtension = Extension.create({
         types: ["paragraph", "heading", "blockquote", "bulletList", "orderedList"],
         attributes: {
           dir: {
-            default: null,
-            parseHTML: (element) => element.getAttribute("dir"),
-            renderHTML: (attributes) => {
-              if (!attributes.dir) return {};
-              return { dir: attributes.dir };
-            },
+            default: "auto",
+            keepOnSplit: false,
+            parseHTML: (element) => element.getAttribute("dir") || "auto",
+            renderHTML: (attributes) => ({ dir: attributes.dir || "auto" }),
           },
         },
       },
@@ -174,7 +172,7 @@ export function WordProcessor({
     editorProps: {
       attributes: {
         class: "eisax-word-prose outline-none min-h-[760px]",
-        dir: defaultDir,
+        dir: language === "ar" ? "rtl" : "auto",
       },
     },
     onUpdate: ({ editor: ed }) => {
@@ -199,7 +197,18 @@ export function WordProcessor({
     editor.commands.setContent(blocksToTiptapDoc(blocks), { emitUpdate: false });
   }, [blocks, editor, externalVersion]);
 
-  function setBlockDir(dir: "ltr" | "rtl" | null) {
+  function getActiveBlockDir(): "auto" | "ltr" | "rtl" {
+    if (!editor) return "auto";
+    for (const typeName of ["heading", "paragraph", "blockquote", "bulletList", "orderedList"]) {
+      if (editor.isActive(typeName)) {
+        const d = editor.getAttributes(typeName).dir as string | undefined;
+        if (d === "rtl" || d === "ltr" || d === "auto") return d;
+      }
+    }
+    return "auto";
+  }
+
+  function setBlockDir(dir: "ltr" | "rtl" | "auto") {
     if (!editor) return;
     const types = ["paragraph", "heading", "blockquote", "bulletList", "orderedList"];
     const chain = editor.chain().focus();
@@ -207,6 +216,14 @@ export function WordProcessor({
       if (editor.isActive(typeName)) {
         chain.updateAttributes(typeName, { dir });
       }
+    }
+    // Clear forced opposite text alignment so Arabic aligns right and English aligns left cleanly
+    if (dir === "rtl" && editor.isActive({ textAlign: "left" })) {
+      chain.unsetTextAlign();
+    } else if (dir === "ltr" && editor.isActive({ textAlign: "right" })) {
+      chain.unsetTextAlign();
+    } else if (dir === "auto" && (editor.isActive({ textAlign: "left" }) || editor.isActive({ textAlign: "right" }))) {
+      chain.unsetTextAlign();
     }
     chain.run();
   }
@@ -447,19 +464,27 @@ export function WordProcessor({
           ))}
           <button
             type="button"
-            className="btn btn-ghost !px-2 !py-1 text-xs"
-            onClick={() => setBlockDir("ltr")}
-            title="Paragraph Left-to-Right"
+            className={`btn !px-2 !py-1 text-xs ${getActiveBlockDir() === "auto" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => setBlockDir("auto")}
+            title={ar ? "اتجاه تلقائي حسب اللغة (عربي يمين / إنجليزي يسار)" : "Auto direction (Arabic RTL / English LTR)"}
           >
-            LTR
+            {ar ? "تلقائي" : "Auto"}
           </button>
           <button
             type="button"
-            className="btn btn-ghost !px-2 !py-1 text-xs"
+            className={`btn !px-2 !py-1 text-xs ${getActiveBlockDir() === "rtl" ? "btn-primary" : "btn-ghost"}`}
             onClick={() => setBlockDir("rtl")}
-            title="Paragraph Right-to-Left (Arabic)"
+            title={ar ? "من اليمين لليسار (عربي)" : "Paragraph Right-to-Left (Arabic)"}
           >
             RTL
+          </button>
+          <button
+            type="button"
+            className={`btn !px-2 !py-1 text-xs ${getActiveBlockDir() === "ltr" ? "btn-primary" : "btn-ghost"}`}
+            onClick={() => setBlockDir("ltr")}
+            title={ar ? "من اليسار لليمين (إنجليزي)" : "Paragraph Left-to-Right"}
+          >
+            LTR
           </button>
 
           <span className="mx-1 h-5 w-px" style={{ background: "var(--border)" }} />
@@ -562,7 +587,7 @@ export function WordProcessor({
             <button
               type="button"
               className="btn btn-ghost !px-2 !py-0.5 text-xs"
-              style={{ color: "#ff8b8b" }}
+              style={{ color: "var(--danger)" }}
               onClick={() => editor.chain().focus().deleteTable().run()}
             >
               {ar ? "حذف الجدول" : "Delete table"}

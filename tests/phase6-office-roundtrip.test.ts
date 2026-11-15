@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
+import manifest from "@/app/manifest";
 import { blocksToTiptapDoc, tiptapDocToBlocks } from "@/lib/document/tiptapSync";
 import { buildDocx } from "@/lib/export/docx";
 import { buildPptx } from "@/lib/export/pptx";
@@ -8,6 +11,11 @@ import { importDocx } from "@/lib/import/docx";
 import { importPptx } from "@/lib/import/pptx";
 import { slideToCanvasElements } from "@/lib/presentation/elements";
 import { resolveSlideTheme } from "@/lib/projects/themes";
+import {
+  detectFirstStrongDir,
+  resolveParagraphDir,
+  splitBidiRunChunks,
+} from "@/lib/utils/bidi";
 import type { AssetResolver } from "@/lib/storage/assets";
 import type { DocumentBlock, DocumentContent, PresentationContent } from "@/lib/validation/projects";
 
@@ -490,5 +498,121 @@ describe("Phase 6 Office Round-Trip Compatibility", () => {
     expect(els.length).toBeGreaterThanOrEqual(3);
     expect(els.some((e) => e.kind === "text" && e.text === "Legacy Slide")).toBe(true);
     expect(els.some((e) => e.kind === "shape")).toBe(true);
+  });
+
+  it("handles Arabic + mixed English Bidi cleanly in TipTap, DOCX runs, and PPTX text boxes", async () => {
+    const mixedSentence = "عاوز تظبيط العربيه - الكتابه بتتكتب من اليمين للشمال are you got it ?؟";
+    expect(detectFirstStrongDir(mixedSentence)).toBe("rtl");
+    expect(detectFirstStrongDir("123 - مرحبا hello")).toBe("rtl");
+    expect(detectFirstStrongDir("English first مع عربي")).toBe("ltr");
+    expect(resolveParagraphDir("English first مع عربي", "rtl", "ltr")).toBe("rtl");
+
+    // 1. Blank EN document paragraph loads as dir="auto", allowing instant Arabic RTL typing
+    const blankDoc = blocksToTiptapDoc([
+      { id: "blank-p", kind: "paragraph", text: "", dir: "ltr" },
+    ]);
+    expect(blankDoc.content?.[0]?.attrs?.dir).toBe("auto");
+
+    // Simulated user typing Arabic + English into that dir="auto" paragraph
+    const typedDoc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { dir: "auto" },
+          content: [{ type: "text", text: mixedSentence }],
+        },
+        {
+          type: "bulletList",
+          attrs: { dir: "auto" },
+          content: [
+            {
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  attrs: { dir: "auto" },
+                  content: [{ type: "text", text: "البند الأول with English phrase" }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const savedBlocks = tiptapDocToBlocks(typedDoc, "ltr");
+    expect(savedBlocks[0]?.dir).toBe("rtl");
+    expect(savedBlocks[1]?.kind).toBe("list");
+    expect(savedBlocks[1]?.dir).toBe("rtl");
+
+    // 2. DOCX splits mixed RTL paragraph into <w:rtl/> Arabic runs and LTR English runs inside <w:bidi/>
+    const chunks = splitBidiRunChunks(mixedSentence, true);
+    expect(chunks.some((c) => c.rtl === false && c.text.includes("are you got it"))).toBe(true);
+    expect(chunks.some((c) => c.rtl === true && c.text.includes("عاوز تظبيط العربيه"))).toBe(true);
+
+    const docxOut = await buildDocx("Arabic Mixed Test", {
+      schemaVersion: 1,
+      blocks: savedBlocks,
+    });
+    expect("data" in docxOut).toBe(true);
+    const docxZip = await JSZip.loadAsync((docxOut as { data: Buffer }).data);
+    const docXml = await docxZip.file("word/document.xml")!.async("string");
+    expect(docXml).toContain("<w:bidi/>");
+    expect(docXml).toContain('<w:jc w:val="start"/>');
+    // English phrase inside RTL paragraph explicitly marks w:rtl="false" while Arabic runs carry <w:rtl/>
+    const engRunMatch = docXml.match(/<w:r>(?:(?!<\/w:r>)[\s\S])*?are you got it(?:(?!<\/w:r>)[\s\S])*?<\/w:r>/);
+    expect(engRunMatch).not.toBeNull();
+    expect(engRunMatch![0]).toContain('w:val="false"');
+
+    // 3. Slide text box without explicit dir auto-resolves Arabic + English text to native PowerPoint RTL
+    const pptxOut = await buildPptx("Arabic Slide Test", {
+      schemaVersion: 1,
+      theme: "light",
+      slides: [
+        {
+          id: "s-bidi",
+          title: "Arabic Slide",
+          subtitle: "",
+          bullets: [],
+          layout: "title-body",
+          accentShape: "none",
+          notes: "",
+          dir: "ltr",
+          elements: [
+            {
+              id: "tb-auto",
+              kind: "text",
+              x: 10,
+              y: 20,
+              w: 80,
+              h: 20,
+              zIndex: 1,
+              text: mixedSentence,
+            },
+          ],
+        },
+      ],
+    });
+    expect("data" in pptxOut).toBe(true);
+    const pptxZip = await JSZip.loadAsync((pptxOut as { data: Buffer }).data);
+    const slideXml = await pptxZip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slideXml).toContain('rtl="1"');
+    expect(slideXml).toContain('algn="r"');
+  });
+
+  it("exposes valid standalone full-screen PWA manifest and service worker assets", () => {
+    const m = manifest();
+    expect(m.display).toBe("standalone");
+    expect(m.start_url).toBe("/dashboard");
+    const icons = m.icons ?? [];
+    expect(icons.some((i) => i.sizes === "192x192" && i.src === "/icons/icon-192.png")).toBe(true);
+    expect(icons.some((i) => i.sizes === "512x512" && i.src === "/icons/icon-512.png")).toBe(true);
+    expect(icons.some((i) => i.purpose === "maskable" && i.src === "/icons/icon-maskable-512.png")).toBe(true);
+
+    const root = process.cwd();
+    expect(fs.existsSync(path.join(root, "public", "icons", "icon-192.png"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "public", "icons", "icon-512.png"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "public", "icons", "icon-maskable-512.png"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "public", "sw.js"))).toBe(true);
   });
 });

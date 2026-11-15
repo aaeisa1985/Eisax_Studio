@@ -6,6 +6,7 @@ import { getProject, listRevisions } from "@/lib/projects/service";
 import { getMonthlyUsage } from "@/lib/billing/usage";
 import { LOCALE_COOKIE, getLocale } from "@/lib/i18n";
 import { ProjectEditor, type EditorProject } from "@/components/ProjectEditor";
+import { UI_THEME_COOKIE, type UiTheme } from "@/components/ThemeSwitcher";
 
 export const dynamic = "force-dynamic";
 
@@ -34,11 +35,13 @@ export default async function ProjectPage(props: { params: Promise<{ id: string 
   const usage = await getMonthlyUsage(user.id, workspaceId);
   const jar = await cookies();
   const locale = getLocale(jar.get(LOCALE_COOKIE)?.value, project.language);
+  const uiTheme: UiTheme = jar.get(UI_THEME_COOKIE)?.value === "light" ? "light" : "dark";
 
   const content = (project.content ?? {}) as EditorProject["content"];
   return (
     <ProjectEditor
       locale={locale}
+      initialTheme={uiTheme}
       revisions={revisions.map((r) => ({ revisionNo: r.revisionNo, createdAt: r.createdAt.toISOString() }))}
       initialUsage={{ used: usage.used, limit: usage.limit }}
       project={{

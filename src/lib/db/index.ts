@@ -9,13 +9,15 @@ export type EisaxDb = ReturnType<typeof drizzle<typeof schema>>;
 interface GlobalDb {
   __eisaxDb?: EisaxDb;
   __eisaxClient?: PGlite;
+  __eisaxShutdownHook?: boolean;
 }
 
 const g = globalThis as unknown as GlobalDb;
 
 function dataDir(): string {
-  // PGlite persists to a local directory; .data is gitignored.
-  const dir = path.resolve(process.cwd(), ".data", "pg");
+  // Isolate Vitest PGlite storage from the local runtime DB to prevent lock/WAL corruption.
+  const folder = process.env.EISAX_PG_DATA_DIR || (process.env.VITEST ? "pg-test" : "pg");
+  const dir = path.isAbsolute(folder) ? folder : path.resolve(process.cwd(), ".data", folder);
   mkdirSync(path.dirname(dir), { recursive: true });
   return dir;
 }
@@ -53,6 +55,14 @@ export async function getDb(): Promise<EisaxDb> {
   const db = drizzle(client, { schema });
   g.__eisaxClient = client;
   g.__eisaxDb = db;
+  if (!g.__eisaxShutdownHook) {
+    g.__eisaxShutdownHook = true;
+    const shutdown = () => {
+      void g.__eisaxClient?.close().catch(() => undefined);
+    };
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
+  }
   return db;
 }
 

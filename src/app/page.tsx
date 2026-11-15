@@ -4,11 +4,14 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { LOCALE_COOKIE, dirFor, getLocale, t, type DictKey } from "@/lib/i18n";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { Icon } from "@/components/Icon";
+import { ThemeSwitcher, UI_THEME_COOKIE, type UiTheme } from "@/components/ThemeSwitcher";
+import { PwaInstallButton } from "@/components/PwaManager";
 
 export default async function LandingPage() {
   const jar = await cookies();
   const user = await getCurrentUser();
   const locale = getLocale(jar.get(LOCALE_COOKIE)?.value, user?.locale);
+  const uiTheme: UiTheme = jar.get(UI_THEME_COOKIE)?.value === "light" ? "light" : "dark";
   const ar = locale === "ar";
   const tr = (k: DictKey) => t(locale, k);
   const rtl = dirFor(locale) === "rtl";
@@ -67,7 +70,7 @@ export default async function LandingPage() {
       {/* ---------- Nav ---------- */}
       <header
         className="sticky top-0 z-20"
-        style={{ background: "rgba(6,11,20,0.82)", backdropFilter: "blur(10px)", borderBottom: "1px solid var(--border)" }}
+        style={{ background: "var(--nav-bg)", backdropFilter: "blur(10px)", borderBottom: "1px solid var(--border)" }}
       >
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5">
           <Link href="/" className="flex items-center gap-2.5 no-underline">
@@ -88,7 +91,9 @@ export default async function LandingPage() {
             <a href="#pricing" className="no-underline whitespace-nowrap transition-colors hover:text-white">{tr("navPricing")}</a>
             <a href="#faq" className="no-underline whitespace-nowrap transition-colors hover:text-white">{tr("navFaq")}</a>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <PwaInstallButton locale={locale} />
+            <ThemeSwitcher initialTheme={uiTheme} locale={locale} />
             <LocaleSwitcher current={locale} />
             {user ? (
               <Link href="/dashboard" className="btn btn-primary text-sm no-underline">

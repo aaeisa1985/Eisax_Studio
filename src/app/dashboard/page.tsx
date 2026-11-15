@@ -10,6 +10,8 @@ import { LOCALE_COOKIE, getLocale, t } from "@/lib/i18n";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 import { ProjectCard } from "@/components/ProjectCard";
+import { ThemeSwitcher, UI_THEME_COOKIE, type UiTheme } from "@/components/ThemeSwitcher";
+import { FullscreenButton, PwaInstallButton } from "@/components/PwaManager";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,7 @@ export default async function DashboardPage(props: {
   const workspaceId = await getPrimaryWorkspaceId(user.id);
   const jar = await cookies();
   const locale = getLocale(jar.get(LOCALE_COOKIE)?.value, user.locale);
+  const uiTheme: UiTheme = jar.get(UI_THEME_COOKIE)?.value === "light" ? "light" : "dark";
   const ar = locale === "ar";
   const tr = (k: Parameters<typeof t>[1]) => t(locale, k);
 
@@ -53,6 +56,9 @@ export default async function DashboardPage(props: {
               &nbsp;·&nbsp;
               {ar ? "AI:" : "AI:"} {usage.used}/{usage.limit}
             </span>
+            <PwaInstallButton locale={locale} />
+            <ThemeSwitcher initialTheme={uiTheme} locale={locale} />
+            <FullscreenButton locale={locale} />
             <LocaleSwitcher current={locale} />
             <span className="hidden text-sm sm:inline" style={{ color: "var(--text-dim)" }} dir="auto">
               {user.displayName}
@@ -84,7 +90,7 @@ export default async function DashboardPage(props: {
         </form>
 
         {sp.error === "create" && (
-          <p role="alert" className="mt-4 rounded-lg border p-3 text-sm" style={{ borderColor: "#4a2430", color: "#ff8b8b" }}>
+          <p role="alert" className="mt-4 rounded-lg border p-3 text-sm" style={{ borderColor: "var(--danger-border)", color: "var(--danger)" }}>
             {tr("errorGeneric")}
           </p>
         )}

@@ -9,6 +9,8 @@ import {
 } from "@/app/project-actions";
 import { WordProcessor } from "@/components/WordProcessor";
 import { SlideCanvasEditor } from "@/components/SlideCanvasEditor";
+import { ThemeSwitcher, type UiTheme } from "@/components/ThemeSwitcher";
+import { FullscreenButton } from "@/components/PwaManager";
 import { SLIDE_THEMES } from "@/lib/projects/themes";
 import type {
   DocumentBlock,
@@ -55,16 +57,19 @@ const DEFAULT_PAGE_LAYOUT: PageLayout = {
 export function ProjectEditor({
   project,
   locale,
+  initialTheme = "dark",
   revisions,
   initialUsage,
 }: {
   project: EditorProject;
   locale: Locale;
+  initialTheme?: UiTheme;
   revisions: Array<{ revisionNo: number; createdAt: string }>;
   initialUsage: { used: number; limit: number };
 }) {
   const ar = locale === "ar";
   const tr = (k: Parameters<typeof t>[1]) => t(locale, k);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const [title, setTitle] = useState(project.title);
   const [language, setLanguage] = useState(project.language);
@@ -289,9 +294,12 @@ export function ProjectEditor({
           : "";
 
   return (
-    <div className="min-h-dvh">
-      <header className="border-b" style={{ background: "var(--obsidian-2)", borderColor: "var(--border)" }}>
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2.5 px-5 py-3">
+    <div
+      className={isFullscreen ? "fixed inset-0 z-40 overflow-y-auto" : "min-h-dvh"}
+      style={isFullscreen ? { background: "var(--obsidian)" } : undefined}
+    >
+      <header className="sticky top-0 z-30 border-b" style={{ background: "var(--obsidian-2)", borderColor: "var(--border)" }}>
+        <div className={`mx-auto flex flex-wrap items-center gap-2.5 px-5 py-3 ${isFullscreen ? "max-w-full" : "max-w-7xl"}`}>
           <Link href="/dashboard" className="text-sm no-underline" style={{ color: "var(--text-dim)" }}>
             ← {tr("backToDashboard")}
           </Link>
@@ -373,12 +381,14 @@ export function ProjectEditor({
             <Link href={`/projects/${project.id}/print`} className="btn btn-ghost !py-1.5 text-xs no-underline">
               ⬇ PDF
             </Link>
+            <ThemeSwitcher initialTheme={initialTheme} locale={locale} />
+            <FullscreenButton locale={locale} onFullscreenChange={setIsFullscreen} />
           </div>
         </div>
       </header>
 
       {error && (
-        <p role="alert" className="mx-auto mt-3 max-w-6xl rounded-lg border p-3 text-sm" style={{ borderColor: "#4a2430", color: "#ff8b8b" }}>
+        <p role="alert" className="mx-auto mt-3 max-w-6xl rounded-lg border p-3 text-sm" style={{ borderColor: "var(--danger-border)", color: "var(--danger)" }}>
           {tr("errorGeneric")} ({error})
         </p>
       )}
@@ -416,34 +426,36 @@ export function ProjectEditor({
         />
       )}
 
-      <footer className="mx-auto max-w-7xl px-5 pb-10">
-        <details className="card p-4 text-sm">
-          <summary className="cursor-pointer font-semibold">
-            {tr("revisions")} ({revisions.length})
-          </summary>
-          <ul className="mt-3 space-y-1.5">
-            {revisions.map((r) => (
-              <li key={r.revisionNo} className="flex items-center justify-between gap-3">
-                <span style={{ color: "var(--text-dim)" }}>
-                  #{r.revisionNo} · {new Date(r.createdAt).toLocaleString(ar ? "ar" : "en-GB")}
-                </span>
-                <form action={restoreRevisionAction}>
-                  <input type="hidden" name="projectId" value={project.id} />
-                  <input type="hidden" name="revisionNo" value={r.revisionNo} />
-                  <button type="submit" className="btn btn-ghost !px-2.5 !py-1 text-xs">
-                    {tr("restore")}
-                  </button>
-                </form>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs" style={{ color: "var(--text-dim)" }}>
-            {ar
-              ? "تُحفظ نسخة عند كل تغيير فعلي للمحتوى (آخر 20 نسخة)."
-              : "A revision is stored on each real content change (last 20 kept)."}
-          </p>
-        </details>
-      </footer>
+      {!isFullscreen && (
+        <footer className="mx-auto max-w-7xl px-5 pb-10">
+          <details className="card p-4 text-sm">
+            <summary className="cursor-pointer font-semibold">
+              {tr("revisions")} ({revisions.length})
+            </summary>
+            <ul className="mt-3 space-y-1.5">
+              {revisions.map((r) => (
+                <li key={r.revisionNo} className="flex items-center justify-between gap-3">
+                  <span style={{ color: "var(--text-dim)" }}>
+                    #{r.revisionNo} · {new Date(r.createdAt).toLocaleString(ar ? "ar" : "en-GB")}
+                  </span>
+                  <form action={restoreRevisionAction}>
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <input type="hidden" name="revisionNo" value={r.revisionNo} />
+                    <button type="submit" className="btn btn-ghost !px-2.5 !py-1 text-xs">
+                      {tr("restore")}
+                    </button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs" style={{ color: "var(--text-dim)" }}>
+              {ar
+                ? "تُحفظ نسخة عند كل تغيير فعلي للمحتوى (آخر 20 نسخة)."
+                : "A revision is stored on each real content change (last 20 kept)."}
+            </p>
+          </details>
+        </footer>
+      )}
     </div>
   );
 }

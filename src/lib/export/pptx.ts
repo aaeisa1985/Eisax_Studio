@@ -1,6 +1,7 @@
 import PptxGenJS from "pptxgenjs";
 import { presentationContentSchema } from "@/lib/validation/projects";
 import { resolveSlideTheme } from "@/lib/projects/themes";
+import { resolveParagraphDir } from "@/lib/utils/bidi";
 import type { AssetResolver } from "@/lib/storage/assets";
 
 export type PptxResult = { fileName: string; data: Buffer };
@@ -53,7 +54,9 @@ export async function buildPptx(
         const y = (el.y / 100) * 5.625;
         const w = Math.max(0.05, (el.w / 100) * 10);
         const h = Math.max(0.05, (el.h / 100) * 5.625);
-        const elRtl = el.dir === "rtl" || (el.dir !== "ltr" && slide.dir === "rtl");
+        const rawText = el.text || (el.runs ?? []).map((r) => r.text).join("");
+        const resolvedDir = resolveParagraphDir(rawText, el.dir, slide.dir === "rtl" ? "rtl" : "ltr");
+        const elRtl = resolvedDir === "rtl";
         const elAlign =
           el.align === "center" || el.align === "right" || el.align === "left" || el.align === "justify"
             ? el.align
@@ -152,6 +155,7 @@ export async function buildPptx(
               color: string;
               fontSize: number;
               breakLine?: boolean;
+              rtlMode?: boolean;
             };
           }> = [];
 
@@ -167,6 +171,7 @@ export async function buildPptx(
                   color: cleanHex(r.color) ?? textHex,
                   fontSize: r.fontSize ?? el.fontSize ?? 18,
                   breakLine: pIdx < parts.length - 1,
+                  rtlMode: elRtl,
                 },
               });
             });
@@ -398,7 +403,7 @@ export async function buildPptx(
       s.addText(
         col1.map((b) => ({
           text: b,
-          options: { bullet: true, breakLine: true, fontSize: hasSideVisual ? 14 : 16, color: theme.bodyHex },
+          options: { bullet: true, breakLine: true, fontSize: hasSideVisual ? 14 : 16, color: theme.bodyHex, rtlMode: rtl },
         })),
         { x: leftX, y: colY, w: colW, h: 3.0, rtlMode: rtl, align, valign: "top" },
       );
@@ -406,7 +411,7 @@ export async function buildPptx(
         s.addText(
           col2.map((b) => ({
             text: b,
-            options: { bullet: true, breakLine: true, fontSize: hasSideVisual ? 14 : 16, color: theme.bodyHex },
+            options: { bullet: true, breakLine: true, fontSize: hasSideVisual ? 14 : 16, color: theme.bodyHex, rtlMode: rtl },
           })),
           { x: rightX, y: colY, w: colW, h: 3.0, rtlMode: rtl, align, valign: "top" },
         );
@@ -442,7 +447,7 @@ export async function buildPptx(
         s.addText(
           bullets.map((b) => ({
             text: b,
-            options: { bullet: true, breakLine: true, fontSize: 17, color: theme.bodyHex },
+            options: { bullet: true, breakLine: true, fontSize: 17, color: theme.bodyHex, rtlMode: rtl },
           })),
           {
             x: contentX,

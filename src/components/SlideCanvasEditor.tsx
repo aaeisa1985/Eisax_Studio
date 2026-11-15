@@ -5,6 +5,7 @@ import { AiGeneratePanel, AiMenu } from "@/components/AiAssist";
 import { SlideChart } from "@/components/SlideChart";
 import { SLIDE_THEMES, resolveSlideTheme } from "@/lib/projects/themes";
 import { slideToCanvasElements } from "@/lib/presentation/elements";
+import { detectFirstStrongDir } from "@/lib/utils/bidi";
 import type {
   ChartData,
   SlideElement,
@@ -267,6 +268,7 @@ export function SlideCanvasEditor({
   }
 
   function addTextBox() {
+    const isSlideRtl = currentSlide?.dir === "rtl";
     const el: SlideElement = {
       id: elUid("txt"),
       kind: "text",
@@ -275,11 +277,10 @@ export function SlideCanvasEditor({
       w: 50,
       h: 22,
       zIndex: nextZ(),
-      text: ar ? "مربع نص جديد" : "New text box",
+      text: "",
       fontSize: 18,
       color: activeTheme.bodyHex,
-      align: currentSlide?.dir === "rtl" ? "right" : "left",
-      dir: currentSlide?.dir ?? "ltr",
+      ...(isSlideRtl ? { align: "right" as const, dir: "rtl" as const } : {}),
     };
     commitElements([...elements, el]);
     setSelectedElId(el.id);
@@ -676,7 +677,7 @@ export function SlideCanvasEditor({
                 <button
                   type="button"
                   className="btn btn-ghost !px-2 !py-1 text-xs"
-                  style={{ color: "#ff8b8b" }}
+                  style={{ color: "var(--danger)" }}
                   onClick={deleteCurrentSlide}
                   disabled={slides.length <= 1}
                 >
@@ -781,15 +782,29 @@ export function SlideCanvasEditor({
                         {al[0]!.toUpperCase()}
                       </button>
                     ))}
-                    <button
-                      type="button"
-                      className="btn btn-ghost !px-1.5 !py-0.5 text-xs"
-                      onClick={() =>
-                        updateElement(selectedEl.id, { dir: selectedEl.dir === "rtl" ? "ltr" : "rtl" })
-                      }
-                    >
-                      {(selectedEl.dir ?? "ltr").toUpperCase()}
-                    </button>
+                    {(["auto", "rtl", "ltr"] as const).map((d) => {
+                      const active = (selectedEl.dir ?? "auto") === d;
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          className={`btn !px-1.5 !py-0.5 text-xs ${active ? "btn-primary" : "btn-ghost"}`}
+                          onClick={() => {
+                            const alignPatch =
+                              selectedEl.align === "center" || selectedEl.align === "justify"
+                                ? {}
+                                : { align: d === "rtl" ? ("right" as const) : d === "ltr" ? ("left" as const) : undefined };
+                            updateElement(selectedEl.id, {
+                              dir: d === "auto" ? undefined : d,
+                              ...alignPatch,
+                            });
+                          }}
+                          title={d === "auto" ? "Auto direction (Arabic RTL / English LTR)" : `Force ${d.toUpperCase()}`}
+                        >
+                          {d === "auto" ? (ar ? "تلقائي" : "Auto") : d.toUpperCase()}
+                        </button>
+                      );
+                    })}
                     {selectedEl.text && (
                       <AiMenu
                         projectId={projectId}
@@ -823,7 +838,7 @@ export function SlideCanvasEditor({
                 <button
                   type="button"
                   className="btn btn-ghost !px-1.5 !py-0.5 text-xs"
-                  style={{ color: "#ff8b8b" }}
+                  style={{ color: "var(--danger)" }}
                   onClick={() => deleteElement(selectedEl.id)}
                 >
                   🗑
@@ -894,7 +909,8 @@ export function SlideCanvasEditor({
                               <textarea
                                 autoFocus
                                 value={el.text ?? ""}
-                                dir={el.dir ?? "auto"}
+                                placeholder={ar ? "اكتب هنا…" : "Type text…"}
+                                dir={el.dir ?? detectFirstStrongDir(el.text ?? "") ?? "auto"}
                                 onClick={(e) => e.stopPropagation()}
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onChange={(e) =>
@@ -906,11 +922,12 @@ export function SlideCanvasEditor({
                                   color: asCssHex(el.color, `#${activeTheme.titleHex}`),
                                   fontSize: `${el.fontSize ?? 16}px`,
                                   fontWeight: el.bold ? 700 : 400,
+                                  unicodeBidi: el.dir ? "isolate" : "plaintext",
                                 }}
                               />
                             ) : (
                               <div
-                                dir={el.dir ?? "auto"}
+                                dir={el.dir ?? detectFirstStrongDir(el.text ?? "") ?? "auto"}
                                 className="w-full whitespace-pre-wrap break-words px-1"
                                 style={{
                                   color: asCssHex(el.color, "#FFFFFF"),
@@ -919,6 +936,7 @@ export function SlideCanvasEditor({
                                   fontStyle: el.italic ? "italic" : undefined,
                                   textDecoration: el.underline ? "underline" : undefined,
                                   textAlign: el.align ?? "center",
+                                  unicodeBidi: el.dir ? "isolate" : "plaintext",
                                 }}
                               >
                                 {el.text}
@@ -962,49 +980,51 @@ export function SlideCanvasEditor({
                                 : undefined,
                         }}
                       >
-                        {isEditing ? (
-                          <textarea
-                            autoFocus
-                            value={el.text ?? ""}
-                            dir={el.dir ?? "auto"}
-                            onClick={(e) => e.stopPropagation()}
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onChange={(e) =>
-                              updateElement(el.id, {
-                                text: e.target.value,
-                                runs: undefined,
-                                dir: /[\u0600-\u06FF]/.test(e.target.value)
-                                  ? el.dir ?? "rtl"
-                                  : el.dir ?? "ltr",
-                              })
-                            }
-                            onBlur={() => setEditingElId(null)}
-                            className="h-full w-full resize-none bg-transparent outline-none"
-                            style={{
-                              color: asCssHex(el.color, `#${activeTheme.bodyHex}`),
-                              fontSize: `${Math.max(11, Math.round((el.fontSize ?? 18) * 0.92))}px`,
-                              fontWeight: el.bold ? 700 : 400,
-                              fontStyle: el.italic ? "italic" : undefined,
-                              textDecoration: el.underline ? "underline" : undefined,
-                              textAlign: el.align ?? (el.dir === "rtl" ? "right" : "left"),
-                            }}
-                          />
-                        ) : (
-                          <div
-                            dir={el.dir ?? "auto"}
-                            className="h-full w-full whitespace-pre-wrap break-words leading-snug"
-                            style={{
-                              color: asCssHex(el.color, `#${activeTheme.bodyHex}`),
-                              fontSize: `${Math.max(11, Math.round((el.fontSize ?? 18) * 0.92))}px`,
-                              fontWeight: el.bold ? 700 : 400,
-                              fontStyle: el.italic ? "italic" : undefined,
-                              textDecoration: el.underline ? "underline" : undefined,
-                              textAlign: el.align ?? (el.dir === "rtl" ? "right" : "left"),
-                            }}
-                          >
-                            {el.text || (ar ? "انقر مرتين للكتابة…" : "Double-click to type…")}
-                          </div>
-                        )}
+                        {(() => {
+                          const resolvedDir =
+                            el.dir ??
+                            detectFirstStrongDir(el.text ?? "") ??
+                            (currentSlide.dir === "rtl" ? "rtl" : "auto");
+                          const resolvedAlign: React.CSSProperties["textAlign"] =
+                            el.align ??
+                            (resolvedDir === "rtl" ? "right" : resolvedDir === "ltr" ? "left" : "start");
+                          const bidiStyle = {
+                            color: asCssHex(el.color, `#${activeTheme.bodyHex}`),
+                            fontSize: `${Math.max(11, Math.round((el.fontSize ?? 18) * 0.92))}px`,
+                            fontWeight: el.bold ? 700 : 400,
+                            fontStyle: el.italic ? "italic" : undefined,
+                            textDecoration: el.underline ? "underline" : undefined,
+                            textAlign: resolvedAlign,
+                            unicodeBidi: (el.dir ? "isolate" : "plaintext") as "isolate" | "plaintext",
+                          };
+                          return isEditing ? (
+                            <textarea
+                              autoFocus
+                              value={el.text ?? ""}
+                              placeholder={ar ? "اكتب النص هنا…" : "Type text…"}
+                              dir={resolvedDir}
+                              onClick={(e) => e.stopPropagation()}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onChange={(e) =>
+                                updateElement(el.id, {
+                                  text: e.target.value,
+                                  runs: undefined,
+                                })
+                              }
+                              onBlur={() => setEditingElId(null)}
+                              className="h-full w-full resize-none bg-transparent outline-none"
+                              style={bidiStyle}
+                            />
+                          ) : (
+                            <div
+                              dir={resolvedDir}
+                              className="h-full w-full whitespace-pre-wrap break-words leading-snug"
+                              style={bidiStyle}
+                            >
+                              {el.text || (ar ? "انقر مرتين للكتابة…" : "Double-click to type…")}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
 

@@ -27,15 +27,17 @@ function normalizeHex(raw: string | undefined): string | undefined {
   return /^[0-9a-fA-F]{6}$/.test(clean) ? clean.toUpperCase() : undefined;
 }
 
-function mapAlignment(raw: string | undefined): TextAlign | undefined {
+function mapAlignment(raw: string | undefined, rtl = false): TextAlign | undefined {
   switch (raw?.toLowerCase()) {
-    case "left":
     case "start":
+      return rtl ? "right" : "left";
+    case "end":
+      return rtl ? "left" : "right";
+    case "left":
       return "left";
     case "center":
       return "center";
     case "right":
-    case "end":
       return "right";
     case "both":
     case "distribute":
@@ -314,9 +316,9 @@ export async function importDocx(
       const pPr = child(node, "pPr");
       const pStyle = attr(child(pPr, "pStyle"), "val");
       const outlineLvl = attr(child(pPr, "outlineLvl"), "val");
-      const align = mapAlignment(attr(child(pPr, "jc"), "val"));
       const bidiNode = child(pPr, "bidi");
       const explicitRtl = Boolean(bidiNode && attr(bidiNode, "val") !== "0" && attr(bidiNode, "val") !== "false");
+      const align = mapAlignment(attr(child(pPr, "jc"), "val"), explicitRtl);
       const numPr = child(pPr, "numPr");
       const numId = attr(child(numPr, "numId"), "val");
 

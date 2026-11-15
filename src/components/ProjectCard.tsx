@@ -100,7 +100,7 @@ export function ProjectCard({ project, locale }: { project: ProjectCardData; loc
               type="submit"
               role="menuitem"
               className="block w-full px-4 py-2 text-start text-sm hover:bg-white/5"
-              style={{ color: "#ff8b8b" }}
+              style={{ color: "var(--danger)" }}
             >
               {tr("delete")}
             </button>

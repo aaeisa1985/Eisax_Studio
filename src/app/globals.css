@@ -12,6 +12,9 @@
   --text-dim: #9db0c4;
   --border: #1d2c3f;
   --border-strong: #2a3d54;
+  --nav-bg: rgba(6, 11, 20, 0.82);
+  --danger: #ff8b8b;
+  --danger-border: #4a2430;
   --paper: #fbfcfe;
   --paper-text: #17222e;
 }
@@ -19,6 +22,69 @@
 html {
   color-scheme: dark;
   scroll-behavior: smooth;
+}
+
+html[data-ui-theme="light"] {
+  color-scheme: light;
+  --obsidian: #f4f7fb;
+  --obsidian-2: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --turquoise: #0d9488;
+  --sky: #0284c7;
+  --gold: #b45309;
+  --text: #0f172a;
+  --text-dim: #475569;
+  --border: #dbe4ef;
+  --border-strong: #c2d0e1;
+  --nav-bg: rgba(255, 255, 255, 0.9);
+  --danger: #b91c1c;
+  --danger-border: #fca5a5;
+}
+
+html[data-ui-theme="light"] .hover\:bg-white\/5:hover {
+  background-color: rgba(15, 23, 42, 0.05) !important;
+}
+html[data-ui-theme="light"] [role="alert"] {
+  background-color: #fef2f2 !important;
+}
+
+html[data-ui-theme="light"] .bg-aurora {
+  background:
+    radial-gradient(52rem 30rem at 12% -8%, rgba(13, 148, 136, 0.09), transparent 60%),
+    radial-gradient(46rem 26rem at 88% -4%, rgba(2, 132, 199, 0.08), transparent 60%),
+    var(--obsidian);
+}
+html[data-ui-theme="light"] .bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(15, 23, 42, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.045) 1px, transparent 1px);
+}
+html[data-ui-theme="light"] .btn-primary {
+  color: #ffffff;
+}
+html[data-ui-theme="light"] .btn-ghost {
+  background: rgba(15, 23, 42, 0.03);
+}
+html[data-ui-theme="light"] .btn-ghost:hover:not(:disabled) {
+  background: #e9eff7;
+  border-color: #94a3b8;
+}
+html[data-ui-theme="light"] .card-hover:hover {
+  box-shadow: 0 18px 40px -18px rgba(15, 23, 42, 0.16), 0 0 0 1px rgba(13, 148, 136, 0.18);
+}
+html[data-ui-theme="light"] .pill {
+  background: rgba(15, 23, 42, 0.04);
+}
+html[data-ui-theme="light"] .demo-shell {
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  box-shadow: 0 24px 60px -24px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(13, 148, 136, 0.12);
+}
+html[data-ui-theme="light"] .demo-bar {
+  background: rgba(15, 23, 42, 0.03);
+}
+html[data-ui-theme="light"] .hover\:text-white:hover {
+  color: var(--text) !important;
 }
 
 body {
@@ -297,6 +363,23 @@ details.faq[open] .faq-chevron {
 .eisax-word-prose .ProseMirror {
   outline: none;
   min-height: 100%;
+}
+.eisax-word-prose [dir="auto"] {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+.eisax-word-prose [dir="rtl"] {
+  direction: rtl;
+  unicode-bidi: isolate;
+}
+.eisax-word-prose [dir="ltr"] {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+.eisax-word-prose ul[dir="rtl"],
+.eisax-word-prose ol[dir="rtl"] {
+  direction: rtl;
+  text-align: right;
 }
 .eisax-word-prose h1 {
   font-size: 1.85rem;

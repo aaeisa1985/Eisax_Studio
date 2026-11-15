@@ -23,6 +23,7 @@ import {
   type TextAlign,
 } from "@/lib/validation/projects";
 import { parseInlineSegments } from "@/lib/utils/inlineFormat";
+import { splitBidiRunChunks } from "@/lib/utils/bidi";
 import type { AssetResolver } from "@/lib/storage/assets";
 
 export type DocxResult = { fileName: string; data: Buffer };
@@ -33,14 +34,14 @@ function toAlignment(align: TextAlign | undefined, rtl: boolean) {
   switch (align) {
     case "center":
       return AlignmentType.CENTER;
-    case "right":
-      return AlignmentType.RIGHT;
     case "justify":
       return AlignmentType.JUSTIFIED;
+    case "right":
+      return rtl ? AlignmentType.START : AlignmentType.RIGHT;
     case "left":
-      return AlignmentType.LEFT;
+      return rtl ? AlignmentType.END : AlignmentType.LEFT;
     default:
-      return rtl ? AlignmentType.RIGHT : AlignmentType.LEFT;
+      return rtl ? AlignmentType.START : AlignmentType.LEFT;
   }
 }
 
@@ -50,17 +51,23 @@ function cleanColor(hex: string | undefined): string | undefined {
   return /^[0-9a-fA-F]{6}$/.test(c) ? c.toUpperCase() : undefined;
 }
 
-function makeTextRun(run: InlineRun, rtl: boolean, fallbackColor?: string): TextRun {
-  return new TextRun({
-    text: run.text || " ",
-    bold: run.bold,
-    italics: run.italic,
-    underline: run.underline ? { type: UnderlineType.SINGLE } : undefined,
-    strike: run.strike,
-    color: cleanColor(run.color) ?? fallbackColor,
-    size: run.fontSize ? Math.round(run.fontSize * 2) : undefined,
-    rightToLeft: rtl,
-  });
+function makeTextRuns(run: InlineRun, rtl: boolean, fallbackColor?: string): TextRun[] {
+  const raw = run.text || " ";
+  const chunks = splitBidiRunChunks(raw, rtl);
+  const safeChunks = chunks.length > 0 ? chunks : [{ text: raw, rtl }];
+  return safeChunks.map(
+    (ch) =>
+      new TextRun({
+        text: ch.text,
+        bold: run.bold,
+        italics: run.italic,
+        underline: run.underline ? { type: UnderlineType.SINGLE } : undefined,
+        strike: run.strike,
+        color: cleanColor(run.color) ?? fallbackColor,
+        size: run.fontSize ? Math.round(run.fontSize * 2) : undefined,
+        rightToLeft: ch.rtl,
+      }),
+  );
 }
 
 function blockRunsToChildren(
@@ -70,41 +77,41 @@ function blockRunsToChildren(
   fallbackColor?: string,
 ): DocxRunChild[] {
   if (runs && runs.length > 0) {
-    return runs.map((r) => {
+    const out: DocxRunChild[] = [];
+    for (const r of runs) {
       if (r.href && /^https?:\/\//i.test(r.href)) {
-        return new ExternalHyperlink({
-          link: r.href,
-          children: [
-            new TextRun({
-              text: r.text || r.href,
-              style: "Hyperlink",
-              bold: r.bold,
-              italics: r.italic,
-              underline: r.underline ? { type: UnderlineType.SINGLE } : undefined,
-              color: cleanColor(r.color) ?? "0284C7",
-              rightToLeft: rtl,
-            }),
-          ],
-        });
+        out.push(
+          new ExternalHyperlink({
+            link: r.href,
+            children: makeTextRuns(
+              { ...r, text: r.text || r.href },
+              rtl,
+              cleanColor(r.color) ?? "0284C7",
+            ),
+          }),
+        );
+      } else {
+        out.push(...makeTextRuns(r, rtl, fallbackColor));
       }
-      return makeTextRun(r, rtl, fallbackColor);
-    });
+    }
+    return out;
   }
 
   const segments = parseInlineSegments(fallbackText || " ");
   if (segments.length === 0) {
     return [new TextRun({ text: " ", rightToLeft: rtl, color: fallbackColor })];
   }
-  return segments.map(
-    (seg) =>
-      new TextRun({
-        text: seg.text,
-        bold: seg.bold,
-        italics: seg.italic,
-        rightToLeft: rtl,
-        color: fallbackColor,
-      }),
-  );
+  const out: DocxRunChild[] = [];
+  for (const seg of segments) {
+    out.push(
+      ...makeTextRuns(
+        { text: seg.text, bold: seg.bold, italic: seg.italic },
+        rtl,
+        fallbackColor,
+      ),
+    );
+  }
+  return out;
 }
 
 /**

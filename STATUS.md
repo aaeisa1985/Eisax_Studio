@@ -143,3 +143,29 @@ Re-ran the full gate on a clean working tree (`git status` → 0 changes) after 
 - `npm run build` (`next build`) → exit 0 (15 routes including `/api/projects/import` built cleanly).
 - Real file round-trip check against browser-exported `Untitled_Document.docx`, `Untitled_Presentation.pptx`, and a real multi-slide `.pptx` verified exact slide count, content fidelity, editing, re-export, and reopening.
 - Live Chromium E2E on `http://localhost:3100`: verified Blank Document WYSIWYG typing (EN bold + Arabic RTL + table + bullet list) persistence + `.docx` download, Blank Presentation 16:9 canvas element placement/drag/shape/z-index/multi-slide persistence + `.pptx` download, and unauthenticated guard (`401`) on `POST /api/projects/import`. (Note: live UI `<input type="file">` upload trigger in the browser runner hit the IDE sandbox's 60s `browser_upload` permission dialog timeout, so file import round-trips were verified directly through `importDocx`/`importPptx` and `buildDocx`/`buildPptx` against those exact exported `.docx`/`.pptx` binaries.)
+
+---
+
+## Milestone 5 — Mixed Arabic/English Bidi Fixes, Light/Dark Theme & Fullscreen Standalone PWA (2026-11-15)
+
+**Upgrades delivered:**
+- **True Mixed Arabic + English Bidi (`src/lib/utils/bidi.ts`, `src/lib/document/tiptapSync.ts`, `src/components/WordProcessor.tsx`, `src/components/SlideCanvasEditor.tsx`, `src/lib/export/docx.ts`, `src/lib/import/docx.ts`, `src/lib/export/pptx.ts`, `src/app/projects/[id]/print/page.tsx`, `src/app/globals.css`):**
+  - Implemented UAX #9 first-strong paragraph direction detection (`detectFirstStrongDir`, `resolveParagraphDir`) and script-run chunking (`splitBidiRunChunks`).
+  - TipTap empty paragraphs now initialize `dir="auto"` (`keepOnSplit: false`) with `.eisax-word-prose` CSS `unicode-bidi: plaintext` and `text-align: start`, so typing Arabic or mixed Arabic/English sentences automatically lays out RTL cleanly without flipping inline English words or trailing punctuation.
+  - Slide Canvas text boxes start empty cleanly without locked LTR/left defaults and auto-resolve `resolvedDir` + `unicodeBidi: "plaintext"` while offering explicit `Auto | RTL | LTR` controls.
+  - Fixed `docx@9` RTL alignment emission (`AlignmentType.START`/`END` in `docx.ts`, `"start"`/`"end"` in `import/docx.ts`) and per-run `rightToLeft` split for English runs inside RTL `<w:bidi/>` paragraphs; fixed `pptx.ts` to attach `rtlMode` per run object (`textRuns` & bullet items) so `pptxgenjs` emits native `<a:pPr rtl="1">` alongside `algn="r"`.
+- **Light & Dark Theme Mode (`src/components/ThemeSwitcher.tsx`, `src/app/globals.css`, `src/app/layout.tsx`, `src/app/page.tsx`, `src/app/dashboard/page.tsx`, `src/components/ProjectEditor.tsx`):**
+  - Added full `[data-ui-theme="light"]` token system (`--obsidian`, `--obsidian-2`, `--surface`, `--surface-2`, `--text`, `--text-dim`, `--border`, `--nav-bg`, `--danger`, `--danger-border`) with cookie (`eisax_ui_theme`) + `localStorage` persistence across SSR/reloads (`FOUC`-free).
+- **Installable Fullscreen Standalone PWA (`src/app/manifest.ts`, `public/sw.js`, `public/icons/*`, `src/components/PwaManager.tsx`, `src/components/ProjectEditor.tsx`):**
+  - Added `/manifest.webmanifest` (`display: "standalone"`, `display_override: ["window-controls-overlay", "standalone", "fullscreen"]`, PNG 192x192 / 512x512 / maskable 512x512 + SVG icons), static-asset Service Worker `/sw.js`, Apple web app metadata, `PwaInstallButton`, and `FullscreenButton` (`⛶ Fullscreen`) with edge-to-edge distraction-free workspace view in `ProjectEditor`.
+- **DB Isolation & Clean Shutdown (`src/lib/db/index.ts`):**
+  - Isolated Vitest PGlite storage (`.data/pg-test`) from runtime (`.data/pg`) and added `SIGINT`/`SIGTERM` shutdown hooks to prevent WAL lock/interruption conflicts during test runs.
+
+**Verified (post-final-edit):**
+- `npm run typecheck` (`tsc --noEmit`) → exit 0.
+- `npm test` (`vitest run`) → **5 test files, 49/49 tests passed** (`phase1` 14, `phase2-export` 6, `phase3-ai` 14, `phase5-hardening` 7, `phase6-office-roundtrip` 8 — including mixed Arabic+English `"عاوز تظبيط العربيه - الكتابه بتتكتب من اليمين للشمال are you got it ?؟"` Bidi run splitting, DOCX `<w:bidi/><w:jc w:val="start"/>` + `w:rtl="false"` English run check, PPTX `<a:pPr rtl="1">` + `algn="r"`, and PWA manifest/icon verification).
+- `npm run build` (`next build`) → exit 0 (16 routes including static `/manifest.webmanifest` built cleanly).
+- Live Chromium verification on `http://localhost:3100`:
+  - Light theme toggled and persisted across reload (`data-ui-theme="light"`, body background `rgb(244, 247, 251)`).
+  - `/manifest.webmanifest` (`200`), `/icons/icon-192.png` (`200`), and `/sw.js` (`200`, Service Worker active scope `http://localhost:3100/`).
+  - Blank Document & Blank Presentation tested in Light & Fullscreen mode with Arabic/mixed-direction auto-RTL typing (`dir="rtl"`, punctuation aligned cleanly, `Saved` persistence).

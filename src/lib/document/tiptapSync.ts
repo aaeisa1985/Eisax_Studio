@@ -1,4 +1,5 @@
 import type { JSONContent } from "@tiptap/core";
+import { detectFirstStrongDir, resolveParagraphDir } from "@/lib/utils/bidi";
 import { parseInlineSegments } from "@/lib/utils/inlineFormat";
 import type {
   ChartData,
@@ -114,9 +115,17 @@ function normalizeAlign(raw: unknown): TextAlign | undefined {
 }
 
 function inferDir(attrDir: unknown, text: string, fallback: "ltr" | "rtl"): "ltr" | "rtl" {
-  if (attrDir === "rtl" || attrDir === "ltr") return attrDir;
-  if (/[\u0600-\u06FF]/.test(text)) return "rtl";
-  return fallback;
+  const explicit = attrDir === "rtl" || attrDir === "ltr" ? attrDir : null;
+  return resolveParagraphDir(text, explicit, fallback);
+}
+
+/** Pick "auto" when natural first-strong matches stored dir (or paragraph is empty), keeping explicit overrides intact. */
+function tiptapDirForBlock(storedDir: string | undefined, text: string): "auto" | "ltr" | "rtl" {
+  const trimmed = text.trim();
+  if (!trimmed) return storedDir === "rtl" ? "rtl" : "auto";
+  const first = detectFirstStrongDir(trimmed);
+  if (first && (storedDir === first || !storedDir)) return "auto";
+  return storedDir === "rtl" ? "rtl" : storedDir === "ltr" ? "ltr" : "auto";
 }
 
 /** Convert EISAX DocumentBlock[] into a TipTap/ProseMirror JSON document. */
@@ -124,9 +133,10 @@ export function blocksToTiptapDoc(blocks: DocumentBlock[]): JSONContent {
   const content: JSONContent[] = [];
 
   for (const b of blocks) {
+    const tDir = tiptapDirForBlock(b.dir, b.text || "");
     const baseAttrs: Record<string, unknown> = {
       ...(b.align ? { textAlign: b.align } : {}),
-      dir: b.dir || "ltr",
+      dir: tDir,
     };
 
     if (b.kind === "heading") {
@@ -160,7 +170,7 @@ export function blocksToTiptapDoc(blocks: DocumentBlock[]): JSONContent {
       const inline = inlineRunsToTiptapNodes(b.runs, b.text);
       content.push({
         type: "blockquote",
-        attrs: { dir: b.dir || "ltr" },
+        attrs: { dir: tDir },
         content: [
           {
             type: "paragraph",
@@ -171,6 +181,11 @@ export function blocksToTiptapDoc(blocks: DocumentBlock[]): JSONContent {
       });
     } else if (b.kind === "list") {
       const items = b.items && b.items.length > 0 ? b.items : [b.text || ""];
+      const listDir = items.some((x) => x.trim().length > 0)
+        ? resolveParagraphDir(items.join(" "), b.dir, "ltr")
+        : b.dir === "rtl"
+          ? "rtl"
+          : "auto";
       const listItems: JSONContent[] = items.map((itemText, idx) => {
         const inline = inlineRunsToTiptapNodes(b.listRuns?.[idx], itemText);
         return {
@@ -178,7 +193,7 @@ export function blocksToTiptapDoc(blocks: DocumentBlock[]): JSONContent {
           content: [
             {
               type: "paragraph",
-              attrs: { dir: b.dir || "ltr" },
+              attrs: { dir: tiptapDirForBlock(b.dir, itemText) },
               ...(inline.length > 0 ? { content: inline } : {}),
             },
           ],
@@ -186,7 +201,7 @@ export function blocksToTiptapDoc(blocks: DocumentBlock[]): JSONContent {
       });
       content.push({
         type: b.ordered ? "orderedList" : "bulletList",
-        attrs: { dir: b.dir || "ltr" },
+        attrs: { dir: listDir },
         content: listItems,
       });
     } else if (b.kind === "table") {
@@ -200,7 +215,7 @@ export function blocksToTiptapDoc(blocks: DocumentBlock[]): JSONContent {
             content: [
               {
                 type: "paragraph",
-                attrs: { dir: /[\u0600-\u06FF]/.test(cell) ? "rtl" : b.dir || "ltr" },
+                attrs: { dir: tiptapDirForBlock(b.dir, cell) },
                 ...(cell ? { content: [{ type: "text", text: cell }] } : {}),
               },
             ],
@@ -227,7 +242,7 @@ export function blocksToTiptapDoc(blocks: DocumentBlock[]): JSONContent {
   }
 
   if (content.length === 0) {
-    content.push({ type: "paragraph", attrs: { dir: "ltr" } });
+    content.push({ type: "paragraph", attrs: { dir: "auto" } });
   }
   return { type: "doc", content };
 }
