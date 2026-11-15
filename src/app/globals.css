@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+:root {
+  --obsidian: #060b14;
+  --obsidian-2: #0b1420;
+  --surface: #101b2a;
+  --turquoise: #00d4c8;
+  --sky: #0ea5e9;
+  --gold: #d4af37;
+  --text: #e8eef6;
+  --text-dim: #9db0c4;
+  --border: #1d2c3f;
+  --paper: #fbfcfe;
+  --paper-text: #17222e;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--obsidian);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Noto Sans Arabic", "Segoe UI Arabic", Tahoma, sans-serif;
+}
+
+/* Editor content surface stays light for legibility regardless of shell theme */
+.editor-surface {
+  background: var(--paper);
+  color: var(--paper-text);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.65rem;
+  font-weight: 600;
+  padding: 0.55rem 1.1rem;
+  transition: filter 120ms ease, background 120ms ease, opacity 120ms ease;
+  cursor: pointer;
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--turquoise), var(--sky));
+  color: #04222b;
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface);
+}
+.btn-danger {
+  background: transparent;
+  color: #ff8b8b;
+  border: 1px solid #4a2430;
+}
+.btn-danger:hover:not(:disabled) {
+  background: #2a1520;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+}
+
+.input {
+  width: 100%;
+  background: var(--obsidian-2);
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.55rem 0.8rem;
+  color: var(--text);
+}
+.input::placeholder {
+  color: var(--text-dim);
+}
+
+/* Keep mixed-direction user content readable */
+[dir="auto"] {
+  unicode-bidi: plaintext;
+}

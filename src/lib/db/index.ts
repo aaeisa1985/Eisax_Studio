@@ -1,0 +1,64 @@
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
+import { readFileSync, readdirSync, mkdirSync } from "node:fs";
+import path from "node:path";
+import * as schema from "./schema";
+
+export type EisaxDb = ReturnType<typeof drizzle<typeof schema>>;
+
+interface GlobalDb {
+  __eisaxDb?: EisaxDb;
+  __eisaxClient?: PGlite;
+}
+
+const g = globalThis as unknown as GlobalDb;
+
+function dataDir(): string {
+  // PGlite persists to a local directory; .data is gitignored.
+  const dir = path.resolve(process.cwd(), ".data", "pg");
+  mkdirSync(path.dirname(dir), { recursive: true });
+  return dir;
+}
+
+async function runMigrations(client: PGlite): Promise<void> {
+  await client.exec(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  const applied = await client.query<{ name: string }>("SELECT name FROM _migrations");
+  const appliedNames = new Set(applied.rows.map((r) => r.name));
+
+  const migrationsDir = path.resolve(process.cwd(), "src", "lib", "db", "migrations");
+  // Deterministic order by filename.
+  const entries = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
+
+  for (const name of entries) {
+    if (appliedNames.has(name)) continue;
+    const sql = readFileSync(path.join(migrationsDir, name), "utf8");
+    await client.transaction(async (tx) => {
+      await tx.exec(sql);
+      await tx.query("INSERT INTO _migrations (name) VALUES ($1)", [name]);
+    });
+  }
+}
+
+/** Get (and lazily create) the singleton PGlite-backed Drizzle instance. */
+export async function getDb(): Promise<EisaxDb> {
+  if (g.__eisaxDb) return g.__eisaxDb;
+  const client = new PGlite(dataDir());
+  await client.waitReady;
+  await runMigrations(client);
+  const db = drizzle(client, { schema });
+  g.__eisaxClient = client;
+  g.__eisaxDb = db;
+  return db;
+}
+
+/** Test helper: returns the underlying client (e.g. to run raw SQL). */
+export async function getClient(): Promise<PGlite> {
+  await getDb();
+  if (!g.__eisaxClient) throw new Error("PGlite client not initialized");
+  return g.__eisaxClient;
+}
