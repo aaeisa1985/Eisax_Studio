@@ -238,6 +238,36 @@ describe("AI generate → real project content → real export (integration)", (
     expect(xml).toMatch(/[\u0600-\u06FF]/);
   });
 
+  it("DemoProvider honors 12-slide investor prompt with charts, bilingual content, and zero boilerplate", async () => {
+    const p = new DemoProvider();
+    const outline = await p.generateOutline(
+      {
+        projectId: "00000000-0000-0000-0000-000000000001",
+        prompt: "Create a premium 12-slide investor presentation for EISAX, with charts, bilingual",
+        tone: "persuasive",
+        length: "medium",
+      },
+      "presentation",
+      "en",
+    );
+    const slides = outline.slides ?? [];
+    expect(slides.length).toBe(12);
+    expect(outline.title).toContain("EISAX");
+    expect(slides[0]!.title).not.toContain("Create a premium");
+
+    const uniqueTitles = new Set(slides.map((s) => s.title));
+    expect(uniqueTitles.size).toBe(12);
+
+    const slidesWithCharts = slides.filter((s) => s.chart && s.chart.values.length >= 2);
+    expect(slidesWithCharts.length).toBeGreaterThanOrEqual(3);
+
+    const hasArabic = slides.some(
+      (s) => /[\u0600-\u06FF]/.test(s.title) && s.bullets.some((b) => /[\u0600-\u06FF]/.test(b)),
+    );
+    expect(hasArabic).toBe(true);
+    expect(JSON.stringify(slides)).not.toContain("Clarify priorities around");
+  });
+
   it("clean-up: soft-deleted projects are excluded from workspace lists", async () => {
     const { userId, workspaceId } = await makeUser(`cleanup-${suffix}@test.dev`);
     const created = await createProject(userId, workspaceId, { title: "To Delete", type: "document", language: "en" });

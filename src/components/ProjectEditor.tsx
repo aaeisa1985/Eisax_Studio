@@ -8,12 +8,14 @@ import {
   restoreRevisionAction,
 } from "@/app/project-actions";
 import { AiGeneratePanel, AiMenu } from "@/components/AiAssist";
+import { SlideChart } from "@/components/SlideChart";
 import {
   SLIDE_THEMES,
   resolveSlideTheme,
   type SlideThemeId,
 } from "@/lib/projects/themes";
 import type {
+  ChartData,
   DocumentBlockKind,
   SlideAccentShape,
   SlideLayout,
@@ -29,6 +31,7 @@ export type EditorSlide = {
   accentShape?: SlideAccentShape;
   imageAssetId?: string;
   imageCaption?: string;
+  chart?: ChartData;
   notes: string;
   dir: string;
 };
@@ -43,6 +46,7 @@ export type EditorBlock = {
   rows?: string[][];
   url?: string;
   assetId?: string;
+  chart?: ChartData;
   dir: string;
 };
 
@@ -329,6 +333,15 @@ export function ProjectEditor({
     if (kind === "link") {
       base.url = "https://";
     }
+    if (kind === "chart") {
+      base.chart = {
+        kind: "bar",
+        title: ar ? "مؤشر الأداء الربع سنوي" : "Quarterly Performance",
+        categories: ["Q1", "Q2", "Q3", "Q4"],
+        values: [42, 68, 95, 130],
+        unit: "pts",
+      };
+    }
     commitChange(theme, slides, [...blocks, base]);
   }
   function moveBlock(i: number, delta: -1 | 1) {
@@ -518,7 +531,10 @@ export function ProjectEditor({
                       >
                         <div className="mb-1.5 flex items-center justify-between text-[11px]" style={{ color: "var(--text-dim)" }}>
                           <span>#{i + 1}</span>
-                          <span>{s.layout ?? "title-body"}</span>
+                          <span className="flex items-center gap-1">
+                            {s.chart && <span title="Chart">📊</span>}
+                            <span>{s.layout ?? "title-body"}</span>
+                          </span>
                         </div>
                         <div
                           className="relative overflow-hidden rounded-lg border p-2.5"
@@ -661,20 +677,47 @@ export function ProjectEditor({
                           }}
                         />
                       </label>
+                      <button
+                        type="button"
+                        className="btn btn-ghost !px-2 !py-1 text-xs"
+                        onClick={() => {
+                          if (currentSlide.chart) {
+                            updateSlide(selectedSlide, { chart: undefined });
+                          } else {
+                            updateSlide(selectedSlide, {
+                              chart: {
+                                kind: "bar",
+                                title: ar ? "نمو الإيرادات" : "Revenue Growth",
+                                categories: ["Q1", "Q2", "Q3", "Q4"],
+                                values: [1.2, 2.1, 3.4, 4.8],
+                                unit: "$M",
+                              },
+                            });
+                          }
+                        }}
+                      >
+                        {currentSlide.chart
+                          ? ar
+                            ? "📊 إزالة الرسم"
+                            : "📊 Remove chart"
+                          : ar
+                            ? "📊 + رسم بياني"
+                            : "📊 + Chart"}
+                      </button>
                     </div>
                   </div>
 
                   {/* Themed 16:9 Slide Canvas */}
                   <div
-                    className="relative rounded-2xl border p-8 shadow-lg transition-colors"
+                    className="relative overflow-hidden rounded-2xl border p-8 shadow-xl transition-colors"
                     style={{
                       background:
                         (currentSlide.accentShape ?? "bar") === "card"
                           ? `#${activeTheme.cardBgHex}`
-                          : `#${activeTheme.bgHex}`,
+                          : `linear-gradient(135deg, #${activeTheme.bgHex} 0%, #${activeTheme.cardBgHex} 100%)`,
                       color: `#${activeTheme.titleHex}`,
                       borderColor: `#${activeTheme.borderHex}`,
-                      minHeight: "380px",
+                      minHeight: "430px",
                     }}
                     dir={currentSlide.dir}
                   >
@@ -696,156 +739,288 @@ export function ProjectEditor({
                       />
                     )}
 
-                    <div className="ps-3">
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <AiMenu
-                          projectId={project.id}
-                          locale={locale}
-                          label={ar ? "العنوان" : "Title"}
-                          text={currentSlide.title}
-                          onUsageChange={setUsage}
-                          onApply={(next) =>
-                            updateSlide(selectedSlide, { title: next, dir: textDirFor(next) })
-                          }
-                        />
-                        <AiMenu
-                          projectId={project.id}
-                          locale={locale}
-                          label={ar ? "الفرعي" : "Subtitle"}
-                          text={currentSlide.subtitle}
-                          onUsageChange={setUsage}
-                          onApply={(next) => updateSlide(selectedSlide, { subtitle: next })}
-                        />
-                        <AiMenu
-                          projectId={project.id}
-                          locale={locale}
-                          label={ar ? "الملاحظات" : "Notes"}
-                          text={currentSlide.notes}
-                          onUsageChange={setUsage}
-                          onApply={(next) => updateSlide(selectedSlide, { notes: next })}
-                        />
-                      </div>
-
-                      <input
-                        value={currentSlide.title}
-                        onChange={(e) =>
-                          updateSlide(selectedSlide, {
-                            title: e.target.value,
-                            dir: textDirFor(e.target.value),
-                          })
+                    <div
+                      className={`ps-3 ${
+                        currentSlide.chart || currentSlide.imageAssetId
+                          ? "grid items-start gap-6 lg:grid-cols-12"
+                          : ""
+                      }`}
+                    >
+                      <div
+                        className={
+                          currentSlide.chart || currentSlide.imageAssetId ? "lg:col-span-7" : ""
                         }
-                        placeholder={tr("slideTitleLabel")}
-                        className={`mb-2 w-full border-0 bg-transparent font-extrabold outline-none ${
-                          currentSlide.layout === "quote" ? "text-center text-2xl italic" : "text-3xl"
-                        }`}
-                        style={{ color: `#${activeTheme.titleHex}` }}
-                        dir="auto"
-                        maxLength={500}
-                      />
+                      >
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <AiMenu
+                            projectId={project.id}
+                            locale={locale}
+                            label={ar ? "العنوان" : "Title"}
+                            text={currentSlide.title}
+                            onUsageChange={setUsage}
+                            onApply={(next) =>
+                              updateSlide(selectedSlide, { title: next, dir: textDirFor(next) })
+                            }
+                          />
+                          <AiMenu
+                            projectId={project.id}
+                            locale={locale}
+                            label={ar ? "الفرعي" : "Subtitle"}
+                            text={currentSlide.subtitle}
+                            onUsageChange={setUsage}
+                            onApply={(next) => updateSlide(selectedSlide, { subtitle: next })}
+                          />
+                          <AiMenu
+                            projectId={project.id}
+                            locale={locale}
+                            label={ar ? "الملاحظات" : "Notes"}
+                            text={currentSlide.notes}
+                            onUsageChange={setUsage}
+                            onApply={(next) => updateSlide(selectedSlide, { notes: next })}
+                          />
+                        </div>
 
-                      <input
-                        value={currentSlide.subtitle}
-                        onChange={(e) => updateSlide(selectedSlide, { subtitle: e.target.value })}
-                        placeholder={tr("slideSubtitleLabel")}
-                        className={`w-full border-0 bg-transparent text-lg outline-none ${
-                          currentSlide.layout === "quote" ? "text-center" : ""
-                        }`}
-                        style={{ color: `#${activeTheme.subtitleHex}` }}
-                        dir="auto"
-                        maxLength={1000}
-                      />
+                        <input
+                          value={currentSlide.title}
+                          onChange={(e) =>
+                            updateSlide(selectedSlide, {
+                              title: e.target.value,
+                              dir: textDirFor(e.target.value),
+                            })
+                          }
+                          placeholder={tr("slideTitleLabel")}
+                          className={`mb-2 w-full border-0 bg-transparent font-extrabold outline-none ${
+                            currentSlide.layout === "quote"
+                              ? "text-center text-2xl italic"
+                              : currentSlide.chart || currentSlide.imageAssetId
+                                ? "text-2xl"
+                                : "text-3xl"
+                          }`}
+                          style={{ color: `#${activeTheme.titleHex}` }}
+                          dir="auto"
+                          maxLength={500}
+                        />
 
-                      {currentSlide.layout !== "title" && currentSlide.layout !== "quote" && (
-                        <div className="mt-5">
-                          <div className="mb-2 flex items-center justify-between">
-                            <span className="text-xs font-bold uppercase tracking-wide" style={{ color: `#${activeTheme.subtitleHex}` }}>
-                              {ar ? "نقاط الشريحة" : "Slide bullets"}
-                            </span>
-                            <button
-                              type="button"
-                              className="rounded border px-2 py-0.5 text-xs font-semibold"
-                              style={{
-                                borderColor: `#${activeTheme.borderHex}`,
-                                color: `#${activeTheme.titleHex}`,
-                              }}
-                              onClick={() =>
-                                updateSlide(selectedSlide, {
-                                  bullets: [...(currentSlide.bullets ?? []), ""],
-                                })
+                        <input
+                          value={currentSlide.subtitle}
+                          onChange={(e) => updateSlide(selectedSlide, { subtitle: e.target.value })}
+                          placeholder={tr("slideSubtitleLabel")}
+                          className={`w-full border-0 bg-transparent text-base outline-none ${
+                            currentSlide.layout === "quote" ? "text-center" : ""
+                          }`}
+                          style={{ color: `#${activeTheme.subtitleHex}` }}
+                          dir="auto"
+                          maxLength={1000}
+                        />
+
+                        {currentSlide.layout !== "title" && currentSlide.layout !== "quote" && (
+                          <div className="mt-5">
+                            <div className="mb-2 flex items-center justify-between">
+                              <span
+                                className="text-xs font-bold uppercase tracking-wide"
+                                style={{ color: `#${activeTheme.subtitleHex}` }}
+                              >
+                                {ar ? "نقاط الشريحة" : "Slide bullets"}
+                              </span>
+                              <button
+                                type="button"
+                                className="rounded border px-2 py-0.5 text-xs font-semibold"
+                                style={{
+                                  borderColor: `#${activeTheme.borderHex}`,
+                                  color: `#${activeTheme.titleHex}`,
+                                }}
+                                onClick={() =>
+                                  updateSlide(selectedSlide, {
+                                    bullets: [...(currentSlide.bullets ?? []), ""],
+                                  })
+                                }
+                              >
+                                + {ar ? "نقطة" : "Add bullet"}
+                              </button>
+                            </div>
+                            <ul
+                              className={
+                                currentSlide.layout === "two-col" && !currentSlide.chart
+                                  ? "grid gap-2.5 sm:grid-cols-2"
+                                  : "space-y-2"
                               }
                             >
-                              + {ar ? "نقطة" : "Add bullet"}
-                            </button>
+                              {(currentSlide.bullets ?? []).map((bullet, bIdx) => (
+                                <li key={bIdx} className="flex items-center gap-2">
+                                  <span
+                                    aria-hidden
+                                    className="h-2 w-2 flex-none rounded-full"
+                                    style={{ background: `#${activeTheme.accentHex}` }}
+                                  />
+                                  <input
+                                    value={bullet}
+                                    dir="auto"
+                                    maxLength={500}
+                                    placeholder={ar ? `نقطة ${bIdx + 1}` : `Bullet ${bIdx + 1}`}
+                                    onChange={(e) => {
+                                      const nextBullets = [...(currentSlide.bullets ?? [])];
+                                      nextBullets[bIdx] = e.target.value;
+                                      updateSlide(selectedSlide, { bullets: nextBullets });
+                                    }}
+                                    className="w-full rounded border bg-transparent px-2 py-1 text-sm outline-none"
+                                    style={{
+                                      borderColor: `#${activeTheme.borderHex}`,
+                                      color: `#${activeTheme.bodyHex}`,
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label={ar ? "حذف النقطة" : "Remove bullet"}
+                                    className="text-xs opacity-60 hover:opacity-100"
+                                    onClick={() => {
+                                      const nextBullets = (currentSlide.bullets ?? []).filter(
+                                        (_, idx) => idx !== bIdx,
+                                      );
+                                      updateSlide(selectedSlide, { bullets: nextBullets });
+                                    }}
+                                  >
+                                    ✕
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
                           </div>
-                          <ul
-                            className={
-                              currentSlide.layout === "two-col"
-                                ? "grid gap-2.5 sm:grid-cols-2"
-                                : "space-y-2"
-                            }
-                          >
-                            {(currentSlide.bullets ?? []).map((bullet, bIdx) => (
-                              <li key={bIdx} className="flex items-center gap-2">
-                                <span
-                                  aria-hidden
-                                  className="h-2 w-2 flex-none rounded-full"
-                                  style={{ background: `#${activeTheme.accentHex}` }}
-                                />
-                                <input
-                                  value={bullet}
-                                  dir="auto"
-                                  maxLength={500}
-                                  placeholder={ar ? `نقطة ${bIdx + 1}` : `Bullet ${bIdx + 1}`}
-                                  onChange={(e) => {
-                                    const nextBullets = [...(currentSlide.bullets ?? [])];
-                                    nextBullets[bIdx] = e.target.value;
-                                    updateSlide(selectedSlide, { bullets: nextBullets });
-                                  }}
-                                  className="w-full rounded border bg-transparent px-2 py-1 text-sm outline-none"
-                                  style={{
-                                    borderColor: `#${activeTheme.borderHex}`,
-                                    color: `#${activeTheme.bodyHex}`,
-                                  }}
-                                />
-                                <button
-                                  type="button"
-                                  aria-label={ar ? "حذف النقطة" : "Remove bullet"}
-                                  className="text-xs opacity-60 hover:opacity-100"
-                                  onClick={() => {
-                                    const nextBullets = (currentSlide.bullets ?? []).filter(
-                                      (_, idx) => idx !== bIdx,
-                                    );
-                                    updateSlide(selectedSlide, { bullets: nextBullets });
-                                  }}
-                                >
-                                  ✕
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
+                        )}
+                      </div>
+
+                      {(currentSlide.chart || currentSlide.imageAssetId) && (
+                        <div className="space-y-4 lg:col-span-5">
+                          {currentSlide.chart && (
+                            <SlideChart
+                              chart={currentSlide.chart}
+                              accentHex={`#${activeTheme.accentHex}`}
+                              goldHex="#D9A441"
+                              titleColor={`#${activeTheme.titleHex}`}
+                              textColor={`#${activeTheme.bodyHex}`}
+                              mutedColor={`#${activeTheme.subtitleHex}`}
+                              surfaceBg={`#${activeTheme.cardBgHex}`}
+                              borderColor={`#${activeTheme.borderHex}`}
+                              rtl={currentSlide.dir === "rtl"}
+                            />
+                          )}
+                          {currentSlide.imageAssetId && (
+                            <div className="flex flex-col items-start gap-2">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={`/api/assets/${currentSlide.imageAssetId}`}
+                                alt={
+                                  currentSlide.imageCaption || currentSlide.title || "Slide visual"
+                                }
+                                className="max-h-44 w-full rounded-lg border object-contain"
+                                style={{ borderColor: `#${activeTheme.borderHex}` }}
+                              />
+                              <button
+                                type="button"
+                                className="btn btn-ghost !px-2 !py-1 text-xs"
+                                style={{ color: "#ff8b8b" }}
+                                onClick={() =>
+                                  updateSlide(selectedSlide, {
+                                    imageAssetId: undefined,
+                                    imageCaption: undefined,
+                                  })
+                                }
+                              >
+                                {ar ? "إزالة الصورة" : "Remove image"}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                    {currentSlide.imageAssetId && (
-                      <div className="mt-5 flex items-start gap-3 ps-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={`/api/assets/${currentSlide.imageAssetId}`}
-                          alt={currentSlide.imageCaption || currentSlide.title || "Slide visual"}
-                          className="max-h-44 rounded-lg border object-contain"
-                          style={{ borderColor: `#${activeTheme.borderHex}` }}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-ghost !px-2 !py-1 text-xs"
-                          style={{ color: "#ff8b8b" }}
-                          onClick={() => updateSlide(selectedSlide, { imageAssetId: undefined, imageCaption: undefined })}
-                        >
-                          {ar ? "إزالة الصورة" : "Remove image"}
-                        </button>
-                      </div>
-                    )}
                   </div>
+
+                  {currentSlide.chart && (
+                    <div className="card space-y-3 p-4 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-bold uppercase tracking-wide" style={{ color: "var(--turquoise)" }}>
+                          {ar ? "بيانات الرسم البياني" : "Slide chart data"}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={currentSlide.chart.kind}
+                            onChange={(e) =>
+                              updateSlide(selectedSlide, {
+                                chart: {
+                                  ...currentSlide.chart!,
+                                  kind: e.target.value as ChartData["kind"],
+                                },
+                              })
+                            }
+                            className="input !w-auto !py-1 text-xs"
+                            aria-label={ar ? "نوع الرسم" : "Chart type"}
+                          >
+                            <option value="bar">{ar ? "أعمدة" : "Bar"}</option>
+                            <option value="line">{ar ? "خطي" : "Line"}</option>
+                            <option value="pie">{ar ? "دائري" : "Pie"}</option>
+                          </select>
+                          <input
+                            value={currentSlide.chart.unit ?? ""}
+                            onChange={(e) =>
+                              updateSlide(selectedSlide, {
+                                chart: {
+                                  ...currentSlide.chart!,
+                                  unit: e.target.value || undefined,
+                                },
+                              })
+                            }
+                            placeholder={ar ? "الوحدة ($M / %)" : "Unit ($M / %)"}
+                            maxLength={20}
+                            className="input !w-24 !py-1 text-xs"
+                          />
+                        </div>
+                      </div>
+                      <input
+                        value={currentSlide.chart.title}
+                        onChange={(e) =>
+                          updateSlide(selectedSlide, {
+                            chart: { ...currentSlide.chart!, title: e.target.value },
+                          })
+                        }
+                        placeholder={ar ? "عنوان الرسم البياني" : "Chart title"}
+                        maxLength={200}
+                        className="input !py-1 text-xs"
+                        dir="auto"
+                      />
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {currentSlide.chart.categories.map((cat, cIdx) => (
+                          <div key={cIdx} className="flex items-center gap-1.5">
+                            <input
+                              value={cat}
+                              maxLength={60}
+                              onChange={(e) => {
+                                const cats = [...currentSlide.chart!.categories];
+                                cats[cIdx] = e.target.value;
+                                updateSlide(selectedSlide, {
+                                  chart: { ...currentSlide.chart!, categories: cats },
+                                });
+                              }}
+                              className="input !py-1 text-xs"
+                              dir="auto"
+                            />
+                            <input
+                              type="number"
+                              step="any"
+                              value={currentSlide.chart!.values[cIdx] ?? 0}
+                              onChange={(e) => {
+                                const vals = [...currentSlide.chart!.values];
+                                const parsed = Number.parseFloat(e.target.value);
+                                vals[cIdx] = Number.isFinite(parsed) ? parsed : 0;
+                                updateSlide(selectedSlide, {
+                                  chart: { ...currentSlide.chart!, values: vals },
+                                });
+                              }}
+                              className="input !w-24 !py-1 text-xs"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Speaker notes */}
                   <div className="card p-4">
@@ -900,8 +1075,11 @@ export function ProjectEditor({
                 <button type="button" className="btn btn-ghost justify-center !px-2 !py-1.5 text-xs" onClick={() => addBlock("link")}>
                   + {ar ? "رابط" : "Link"}
                 </button>
-                <button type="button" className="btn btn-ghost col-span-2 justify-center !px-2 !py-1.5 text-xs" onClick={() => addBlock("image")}>
-                  + {ar ? "🖼 صورة (PNG/JPG)" : "🖼 Image (PNG/JPG)"}
+                <button type="button" className="btn btn-ghost justify-center !px-2 !py-1.5 text-xs" onClick={() => addBlock("image")}>
+                  + {ar ? "🖼 صورة" : "🖼 Image"}
+                </button>
+                <button type="button" className="btn btn-ghost justify-center !px-2 !py-1.5 text-xs" onClick={() => addBlock("chart")}>
+                  + {ar ? "📊 رسم" : "📊 Chart"}
                 </button>
               </div>
               <ol className="space-y-1.5">
@@ -923,8 +1101,10 @@ export function ProjectEditor({
                                 ? "❝"
                                 : b.kind === "link"
                                   ? "🔗"
-                                  : "¶"}{" "}
-                        {(b.text || b.items?.[0] || b.url || "…").slice(0, 38)}
+                                  : b.kind === "chart"
+                                    ? "📊"
+                                    : "¶"}{" "}
+                        {(b.text || b.chart?.title || b.items?.[0] || b.url || "…").slice(0, 38)}
                       </span>
                     </a>
                   </li>
@@ -1262,6 +1442,36 @@ export function ProjectEditor({
                             />
                           </label>
                         )}
+                      </div>
+                    )}
+
+                    {b.kind === "chart" && b.chart && (
+                      <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                        <SlideChart chart={b.chart} rtl={b.dir === "rtl"} />
+                        <div className="flex flex-wrap gap-2">
+                          <select
+                            value={b.chart.kind}
+                            onChange={(e) =>
+                              updateBlock(i, {
+                                chart: { ...b.chart!, kind: e.target.value as ChartData["kind"] },
+                              })
+                            }
+                            className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800"
+                          >
+                            <option value="bar">{ar ? "أعمدة" : "Bar"}</option>
+                            <option value="line">{ar ? "خطي" : "Line"}</option>
+                            <option value="pie">{ar ? "دائري" : "Pie"}</option>
+                          </select>
+                          <input
+                            value={b.chart.title}
+                            onChange={(e) =>
+                              updateBlock(i, { chart: { ...b.chart!, title: e.target.value } })
+                            }
+                            maxLength={200}
+                            dir="auto"
+                            className="min-w-44 flex-1 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800"
+                          />
+                        </div>
                       </div>
                     )}
                   </div>

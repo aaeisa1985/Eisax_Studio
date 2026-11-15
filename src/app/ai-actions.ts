@@ -54,6 +54,7 @@ function outlineToContent(
         bullets: s.bullets ?? [],
         layout: s.layout ?? "title-body",
         accentShape: s.accentShape ?? "bar",
+        chart: s.chart,
         notes: s.notes ?? "",
         dir,
       })),
@@ -69,6 +70,7 @@ function outlineToContent(
       ordered: b.kind === "list" ? Boolean(b.ordered) : undefined,
       items: b.kind === "list" ? (b.items ?? []) : undefined,
       rows: b.kind === "table" ? (b.rows ?? [["", ""]]) : undefined,
+      chart: b.kind === "chart" ? b.chart : undefined,
       dir,
     })),
   });

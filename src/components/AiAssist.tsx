@@ -264,11 +264,11 @@ export function AiGeneratePanel({
     setStatusNote(
       res.providerDemo
         ? locale === "ar"
-          ? "تم التوليد عبر المشغّل التجريبي المحلي."
-          : "Generated with local demo provider."
+          ? "تم التوليد عبر الوضع التجريبي المحلي (لتشغيل نموذج حقيقي أضف AI_API_KEY في .env.local)."
+          : "Generated with Offline Demo mode (configure AI_API_KEY in .env.local for live LLM generation)."
         : locale === "ar"
-          ? "تم التوليد بنجاح."
-          : "Generated successfully.",
+          ? "تم التوليد عبر نموذج الذكاء الاصطناعي المباشر."
+          : "Generated with Live AI provider.",
     );
     setOpen(false);
   }

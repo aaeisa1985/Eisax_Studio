@@ -28,17 +28,37 @@ export const outlineSlideSchema = z.object({
   bullets: z.array(z.string().max(500)).max(12).default([]),
   layout: slideLayoutSchema.default("title-body"),
   accentShape: slideAccentShapeSchema.default("bar"),
+  chart: z
+    .object({
+      kind: z.enum(["bar", "line", "pie"]),
+      title: z.string().max(200),
+      categories: z.array(z.string().max(60)).min(2).max(10),
+      values: z.array(z.number().finite()).min(2).max(10),
+      unit: z.string().max(20).optional(),
+    })
+    .refine((d) => d.categories.length === d.values.length)
+    .optional(),
   notes: z.string().max(5000).default(""),
 });
 export type OutlineSlide = z.infer<typeof outlineSlideSchema>;
 
 export const outlineBlockSchema = z.object({
-  kind: z.enum(["heading", "paragraph", "list", "table", "quote"]),
+  kind: z.enum(["heading", "paragraph", "list", "table", "quote", "chart"]),
   level: z.number().int().min(0).max(6).default(0),
   text: z.string().max(20000).default(""),
   ordered: z.boolean().optional(),
   items: z.array(z.string().max(2000)).max(100).optional(),
   rows: z.array(z.array(z.string().max(1000)).max(12)).max(50).optional(),
+  chart: z
+    .object({
+      kind: z.enum(["bar", "line", "pie"]),
+      title: z.string().max(200),
+      categories: z.array(z.string().max(60)).min(2).max(10),
+      values: z.array(z.number().finite()).min(2).max(10),
+      unit: z.string().max(20).optional(),
+    })
+    .refine((d) => d.categories.length === d.values.length)
+    .optional(),
 });
 export type OutlineBlock = z.infer<typeof outlineBlockSchema>;
 

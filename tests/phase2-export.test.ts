@@ -138,6 +138,64 @@ describe("DOCX export (real OOXML inspection)", () => {
     expect(xml).toContain("w:hyperlink");
   });
 
+  it("embeds native PowerPoint chart XML in PPTX and chart table in DOCX", async () => {
+    const pptxRes = await buildPptx("Investor Metrics", {
+      schemaVersion: 1,
+      theme: "obsidian",
+      slides: [
+        {
+          id: "s-chart",
+          title: "ARR Growth",
+          subtitle: "Quarter-over-quarter expansion",
+          bullets: ["128% net dollar retention", "Strong regional pull"],
+          layout: "title-body",
+          accentShape: "bar",
+          chart: {
+            kind: "bar",
+            title: "ARR Growth Trajectory",
+            categories: ["Q1", "Q2", "Q3", "Q4"],
+            values: [0.4, 0.9, 1.5, 2.4],
+            unit: "$M",
+          },
+          notes: "",
+          dir: "ltr",
+        },
+      ],
+    });
+    expect("error" in pptxRes).toBe(false);
+    const pptxZip = await JSZip.loadAsync((pptxRes as { data: Buffer }).data);
+    const chartFile = pptxZip.file("ppt/charts/chart1.xml");
+    expect(chartFile).not.toBeNull();
+    const chartXml = await chartFile!.async("string");
+    expect(chartXml).toContain("ARR Growth Trajectory");
+
+    const docxRes = await buildDocx("Metrics Brief", {
+      schemaVersion: 1,
+      blocks: [
+        { id: "b1", kind: "heading", level: 1, text: "Metrics Brief", dir: "ltr" },
+        {
+          id: "b2",
+          kind: "chart",
+          text: "",
+          chart: {
+            kind: "line",
+            title: "Quarterly ARR",
+            categories: ["Q1", "Q2"],
+            values: [1.1, 2.4],
+            unit: "$M",
+          },
+          dir: "ltr",
+        },
+      ],
+    });
+    expect("error" in docxRes).toBe(false);
+    const docxZip = await JSZip.loadAsync((docxRes as { data: Buffer }).data);
+    const docXml = await docxZip.file("word/document.xml")!.async("string");
+    expect(docXml).toContain("Quarterly ARR ($M)");
+    expect(docXml).toContain("<w:tbl>");
+    expect(docXml).toContain("2.4");
+  });
+
   it("rejects invalid block content", async () => {
     const res = await buildDocx("Bad", { blocks: [{ kind: 42 }] });
     expect(res).toEqual({ error: "invalid_content" });

@@ -49,6 +49,22 @@ export type SlideAccentShape = z.infer<typeof slideAccentShapeSchema>;
 
 export const slideThemeSchema = z.enum(["default", "obsidian", "sky", "gold", "light"]);
 
+export const chartKindSchema = z.enum(["bar", "line", "pie"]);
+export type ChartKind = z.infer<typeof chartKindSchema>;
+
+export const chartDataSchema = z
+  .object({
+    kind: chartKindSchema,
+    title: z.string().max(200),
+    categories: z.array(z.string().max(60)).min(2).max(10),
+    values: z.array(z.number().finite()).min(2).max(10),
+    unit: z.string().max(20).optional(),
+  })
+  .refine((d) => d.categories.length === d.values.length, {
+    message: "Chart categories and values must have the same length",
+  });
+export type ChartData = z.infer<typeof chartDataSchema>;
+
 export const slideItemSchema = z.object({
   id: z.string().min(1),
   title: z.string().max(500),
@@ -58,6 +74,7 @@ export const slideItemSchema = z.object({
   accentShape: slideAccentShapeSchema.default("bar"),
   imageAssetId: z.string().uuid().optional(),
   imageCaption: z.string().max(300).optional(),
+  chart: chartDataSchema.optional(),
   notes: z.string().max(5000).default(""),
   dir: z.enum(["ltr", "rtl"]).default("ltr"),
 });
@@ -80,6 +97,7 @@ export const documentBlockKindSchema = z.enum([
   "quote",
   "link",
   "image",
+  "chart",
 ]);
 export type DocumentBlockKind = z.infer<typeof documentBlockKindSchema>;
 
@@ -102,6 +120,7 @@ export const documentBlockSchema = z.object({
   rows: z.array(z.array(z.string().max(1000)).max(12)).max(50).optional(),
   url: safeUrlSchema.optional(),
   assetId: z.string().uuid().optional(),
+  chart: chartDataSchema.optional(),
   dir: z.enum(["ltr", "rtl"]).default("ltr"),
 });
 

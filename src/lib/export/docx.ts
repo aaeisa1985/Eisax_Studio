@@ -169,6 +169,53 @@ export async function buildDocx(
           }),
         );
       }
+    } else if (block.kind === "chart" && block.chart) {
+      const ch = block.chart;
+      const headingLabel = ch.unit ? `${ch.title} (${ch.unit})` : ch.title;
+      children.push(
+        new Paragraph({
+          text: headingLabel || "Chart",
+          heading: HeadingLevel.HEADING_3,
+          bidirectional: rtl,
+          alignment,
+        }),
+      );
+      const rows: string[][] = [
+        [rtl ? "الفئة" : "Category", ch.unit ? `${rtl ? "القيمة" : "Value"} (${ch.unit})` : rtl ? "القيمة" : "Value"],
+        ...ch.categories.map((cat, idx) => [cat, String(ch.values[idx] ?? 0)]),
+      ];
+      children.push(
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          visuallyRightToLeft: rtl,
+          rows: rows.map((row, rIdx) => {
+            const cells = row.map((cellText) => {
+              const cellRtl = rtl || /[\u0600-\u06FF]/.test(cellText);
+              return new TableCell({
+                shading:
+                  rIdx === 0
+                    ? { type: ShadingType.CLEAR, color: "auto", fill: "EAF6F8" }
+                    : undefined,
+                children: [
+                  new Paragraph({
+                    children: [
+                      new TextRun({
+                        text: cellText || " ",
+                        bold: rIdx === 0,
+                        rightToLeft: cellRtl,
+                      }),
+                    ],
+                    bidirectional: cellRtl,
+                    alignment: cellRtl ? AlignmentType.RIGHT : AlignmentType.LEFT,
+                  }),
+                ],
+              });
+            });
+            return new TableRow({ children: cells });
+          }),
+        }),
+      );
+      children.push(new Paragraph({ text: "" }));
     } else if (block.kind === "link") {
       const label = block.text.trim() || block.url || "Link";
       if (block.url && /^https?:\/\//i.test(block.url)) {

@@ -7,6 +7,7 @@ import { resolveSlideTheme } from "@/lib/projects/themes";
 import { parseInlineSegments } from "@/lib/utils/inlineFormat";
 import { LOCALE_COOKIE, getLocale } from "@/lib/i18n";
 import { PrintButton } from "@/components/PrintButton";
+import { SlideChart } from "@/components/SlideChart";
 import type { EditorBlock, EditorSlide } from "@/components/ProjectEditor";
 
 export const dynamic = "force-dynamic";
@@ -105,43 +106,71 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                   <p style={{ fontSize: 10, color: `#${theme.subtitleHex}`, marginBottom: 6 }}>
                     {ar ? `شريحة ${i + 1}` : `Slide ${i + 1}`}
                   </p>
-                  <h2 style={{ fontSize: 22, fontWeight: 800 }} dir="auto">
-                    {s.title || "—"}
-                  </h2>
-                  {s.subtitle && (
-                    <p style={{ fontSize: 14, color: `#${theme.subtitleHex}`, marginTop: 4 }} dir="auto">
-                      {s.subtitle}
-                    </p>
-                  )}
-                  {bullets.length > 0 && (
-                    <ul
-                      style={{
-                        marginTop: 14,
-                        paddingInlineStart: 20,
-                        display: s.layout === "two-col" ? "grid" : "block",
-                        gridTemplateColumns: s.layout === "two-col" ? "1fr 1fr" : undefined,
-                        gap: 8,
-                        color: `#${theme.bodyHex}`,
-                        fontSize: 13,
-                      }}
-                    >
-                      {bullets.map((b, bIdx) => (
-                        <li key={bIdx} style={{ marginBottom: 4 }} dir="auto">
-                          {b}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {s.imageAssetId && (
-                    <div style={{ marginTop: 12 }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={`/api/assets/${s.imageAssetId}`}
-                        alt={s.imageCaption || s.title || "Slide visual"}
-                        style={{ maxHeight: 180, borderRadius: 8, objectFit: "contain" }}
-                      />
+                  <div
+                    style={{
+                      display: s.chart || s.imageAssetId ? "grid" : "block",
+                      gridTemplateColumns: s.chart || s.imageAssetId ? "1.15fr 0.85fr" : undefined,
+                      gap: 20,
+                      alignItems: "start",
+                    }}
+                  >
+                    <div>
+                      <h2 style={{ fontSize: 22, fontWeight: 800 }} dir="auto">
+                        {s.title || "—"}
+                      </h2>
+                      {s.subtitle && (
+                        <p style={{ fontSize: 14, color: `#${theme.subtitleHex}`, marginTop: 4 }} dir="auto">
+                          {s.subtitle}
+                        </p>
+                      )}
+                      {bullets.length > 0 && (
+                        <ul
+                          style={{
+                            marginTop: 14,
+                            paddingInlineStart: 20,
+                            display: s.layout === "two-col" && !s.chart ? "grid" : "block",
+                            gridTemplateColumns: s.layout === "two-col" && !s.chart ? "1fr 1fr" : undefined,
+                            gap: 8,
+                            color: `#${theme.bodyHex}`,
+                            fontSize: 13,
+                          }}
+                        >
+                          {bullets.map((b, bIdx) => (
+                            <li key={bIdx} style={{ marginBottom: 4 }} dir="auto">
+                              {b}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
-                  )}
+                    {(s.chart || s.imageAssetId) && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                        {s.chart && (
+                          <SlideChart
+                            chart={s.chart}
+                            accentHex={`#${theme.accentHex}`}
+                            goldHex="#D9A441"
+                            titleColor={`#${theme.titleHex}`}
+                            textColor={`#${theme.bodyHex}`}
+                            mutedColor={`#${theme.subtitleHex}`}
+                            surfaceBg={`#${theme.cardBgHex}`}
+                            borderColor={`#${theme.borderHex}`}
+                            rtl={s.dir === "rtl"}
+                          />
+                        )}
+                        {s.imageAssetId && (
+                          <div>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={`/api/assets/${s.imageAssetId}`}
+                              alt={s.imageCaption || s.title || "Slide visual"}
+                              style={{ maxHeight: 160, borderRadius: 8, objectFit: "contain" }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </section>
               );
             })}
@@ -266,6 +295,13 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                       </figcaption>
                     )}
                   </figure>
+                );
+              }
+              if (b.kind === "chart" && b.chart) {
+                return (
+                  <div key={b.id} style={{ margin: "14px 0", maxWidth: 480 }}>
+                    <SlideChart chart={b.chart} rtl={b.dir === "rtl"} />
+                  </div>
                 );
               }
               return (

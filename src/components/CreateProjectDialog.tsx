@@ -406,16 +406,39 @@ export function CreateProjectDialog({
               </form>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center justify-between text-xs" style={{ color: "var(--text-dim)" }}>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs" style={{ color: "var(--text-dim)" }}>
                   <span>{ar ? "الخطوة ٢ من ٢: راجع المخطط وعدّله" : "Step 2 of 2: Review & edit outline"}</span>
-                  <span>
+                  <span
+                    className="rounded-full border px-2 py-0.5 text-[11px] font-medium"
+                    style={{
+                      borderColor: providerDemo ? "rgba(217,164,65,0.45)" : "rgba(0,212,200,0.45)",
+                      color: providerDemo ? "#e9c46a" : "var(--turquoise)",
+                      background: providerDemo ? "rgba(217,164,65,0.08)" : "rgba(0,212,200,0.08)",
+                    }}
+                  >
                     {providerDemo
                       ? ar
-                        ? "مشغّل تجريبي محلي"
-                        : "Local demo provider"
-                      : "AI"}
+                        ? "وضع العرض التجريبي المحلي (بدون API Key)"
+                        : "Offline Demo Generator (no AI_API_KEY)"
+                      : ar
+                        ? "✓ متصل بنموذج AI مباشر"
+                        : "✓ Live AI Provider"}
                   </span>
                 </div>
+                {providerDemo && (
+                  <p
+                    className="rounded-lg border px-3 py-2 text-[11px] leading-relaxed"
+                    style={{
+                      borderColor: "rgba(217,164,65,0.3)",
+                      background: "rgba(217,164,65,0.06)",
+                      color: "var(--text-dim)",
+                    }}
+                  >
+                    {ar
+                      ? "لتوليد محتوى مخصص بالكامل من نموذج ذكاء اصطناعي حقيقي (OpenAI / Gemini / OpenRouter / Ollama)، أضف AI_PROVIDER=openai-compatible وAI_BASE_URL وAI_MODEL وAI_API_KEY في ملف .env.local وأعد تشغيل الخادم."
+                      : "Running offline smart template mode because AI_API_KEY is not configured. Set AI_PROVIDER=openai-compatible, AI_BASE_URL, AI_MODEL, and AI_API_KEY in .env.local for live LLM generation."}
+                  </p>
+                )}
 
                 <div>
                   <label htmlFor="outline-title" className="mb-1 block text-xs font-medium">
@@ -435,9 +458,22 @@ export function CreateProjectDialog({
                   {type === "presentation"
                     ? (outline.slides ?? []).map((sl, i) => (
                         <div key={i} className="rounded-lg border p-2.5" style={{ borderColor: "var(--border)" }}>
-                          <span className="text-[11px] font-bold" style={{ color: "var(--turquoise)" }}>
-                            {ar ? `شريحة ${i + 1}` : `Slide ${i + 1}`}
-                          </span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-bold" style={{ color: "var(--turquoise)" }}>
+                              {ar ? `شريحة ${i + 1}` : `Slide ${i + 1}`}
+                            </span>
+                            {sl.chart && (
+                              <span
+                                className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                                style={{
+                                  background: "rgba(0,212,200,0.12)",
+                                  color: "var(--turquoise)",
+                                }}
+                              >
+                                📊 {sl.chart.kind.toUpperCase()} · {sl.chart.title}
+                              </span>
+                            )}
+                          </div>
                           <input
                             value={sl.title}
                             dir="auto"
@@ -469,6 +505,10 @@ export function CreateProjectDialog({
                           ) : blk.kind === "list" ? (
                             <p className="mt-1 text-xs" style={{ color: "var(--text-dim)" }} dir="auto">
                               {(blk.items ?? []).join(" · ")}
+                            </p>
+                          ) : blk.kind === "chart" ? (
+                            <p className="mt-1 text-xs" style={{ color: "var(--turquoise)" }} dir="auto">
+                              📊 {blk.chart?.title ?? (ar ? "رسم بياني" : "Chart")}
                             </p>
                           ) : (
                             <p className="mt-1 text-xs" style={{ color: "var(--text-dim)" }}>

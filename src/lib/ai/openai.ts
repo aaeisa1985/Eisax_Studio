@@ -60,8 +60,8 @@ export class OpenAICompatibleProvider implements AIProvider {
     const langName = language === "ar" ? "Arabic (Modern Standard Arabic)" : "English";
     const system =
       type === "presentation"
-        ? `You generate structured presentation outlines in JSON only. Return an object with keys: title (string), language ("en"|"ar"), slides (array of { title, subtitle, bullets (string[]), layout ("title"|"title-body"|"two-col"|"quote"), accentShape ("none"|"bar"|"card"|"badge"), notes }). Write all content in ${langName}.`
-        : `You generate structured document outlines in JSON only. Return an object with keys: title (string), language ("en"|"ar"), blocks (array of { kind ("heading"|"paragraph"|"list"|"table"|"quote"), level (1-3 for heading, 0 otherwise), text, ordered (boolean for list), items (string[] for list), rows (string[][] for table) }). Write all content in ${langName}.`;
+        ? `You generate structured, executive-grade presentation outlines in JSON only. Return an object with keys: title (string), language ("en"|"ar"), slides (array of { title, subtitle, bullets (string[]), layout ("title"|"title-body"|"two-col"|"quote"), accentShape ("none"|"bar"|"card"|"badge"), chart (optional { kind ("bar"|"line"|"pie"), title, categories (string[]), values (number[]), unit (optional string) }), notes }). If the user requests a specific slide count (e.g. 12 slides), generate that exact count. Include realistic non-repetitive content and add chart objects on quantitative slides when metrics or charts are requested. Write all content in ${langName}.`
+        : `You generate structured document outlines in JSON only. Return an object with keys: title (string), language ("en"|"ar"), blocks (array of { kind ("heading"|"paragraph"|"list"|"table"|"quote"|"chart"), level (1-3 for heading, 0 otherwise), text, ordered (boolean for list), items (string[] for list), rows (string[][] for table), chart (optional { kind ("bar"|"line"|"pie"), title, categories (string[]), values (number[]), unit (optional string) }) }). Write all content in ${langName}.`;
 
     const countHint =
       type === "presentation"

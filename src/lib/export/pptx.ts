@@ -71,20 +71,75 @@ export async function buildPptx(
 
     const asset =
       slide.imageAssetId && resolveAsset ? await resolveAsset(slide.imageAssetId) : null;
-    const contentX = asset && rtl ? 4.05 : 0.65;
-    const contentW = asset ? 5.3 : 8.7;
+    const chart = slide.chart;
+    const hasSideVisual = Boolean(asset || chart);
+    const contentX = hasSideVisual && rtl ? 4.55 : 0.65;
+    const contentW = hasSideVisual ? 4.75 : 8.7;
     const topY = accentShape === "badge" ? 0.9 : 0.65;
+    const visualX = rtl ? 0.65 : 5.65;
 
-    if (asset) {
+    if (asset && chart) {
       const b64 = asset.data.toString("base64");
       s.addImage({
         data: `data:${asset.mimeType};base64,${b64}`,
-        x: rtl ? 0.65 : 6.2,
-        y: 1.0,
-        w: 3.15,
-        h: 3.15,
-        sizing: { type: "contain", w: 3.15, h: 3.15 },
+        x: visualX,
+        y: 0.75,
+        w: 3.7,
+        h: 1.55,
+        sizing: { type: "contain", w: 3.7, h: 1.55 },
       });
+    } else if (asset) {
+      const b64 = asset.data.toString("base64");
+      s.addImage({
+        data: `data:${asset.mimeType};base64,${b64}`,
+        x: visualX,
+        y: 1.0,
+        w: 3.7,
+        h: 3.15,
+        sizing: { type: "contain", w: 3.7, h: 3.15 },
+      });
+    }
+
+    if (chart) {
+      const chartType =
+        chart.kind === "line"
+          ? pptx.ChartType.line
+          : chart.kind === "pie"
+            ? pptx.ChartType.pie
+            : pptx.ChartType.bar;
+      const chartTitle = chart.unit ? `${chart.title} (${chart.unit})` : chart.title;
+      s.addChart(
+        chartType,
+        [
+          {
+            name: chart.title,
+            labels: chart.categories,
+            values: chart.values,
+          },
+        ],
+        {
+          x: visualX,
+          y: asset ? 2.45 : 1.05,
+          w: 3.7,
+          h: asset ? 2.45 : 3.55,
+          showTitle: true,
+          title: chartTitle,
+          titleColor: theme.titleHex,
+          titleFontSize: 11,
+          chartColors: [theme.accentHex, "D9A441", theme.subtitleHex, "38BDF8", "10B981"],
+          showLegend: chart.kind === "pie",
+          legendPos: "b",
+          legendColor: theme.bodyHex,
+          legendFontSize: 9,
+          catAxisLabelColor: theme.subtitleHex,
+          catAxisLabelFontSize: 9,
+          valAxisLabelColor: theme.subtitleHex,
+          valAxisLabelFontSize: 9,
+          dataLabelColor: theme.bodyHex,
+          showValue: chart.kind !== "pie",
+          showPercent: chart.kind === "pie",
+        },
+      );
     }
 
     if (layout === "quote") {
@@ -171,23 +226,25 @@ export async function buildPptx(
       const col1 = bullets.slice(0, mid);
       const col2 = bullets.slice(mid);
       const colY = hasSubtitle ? topY + 1.45 : topY + 1.05;
-      const leftX = rtl ? 5.1 : contentX;
-      const rightX = rtl ? contentX : 5.1;
+      const colW = hasSideVisual ? 2.25 : 4.1;
+      const gap = hasSideVisual ? 0.2 : 0.35;
+      const leftX = rtl ? contentX + colW + gap : contentX;
+      const rightX = rtl ? contentX : contentX + colW + gap;
 
       s.addText(
         col1.map((b) => ({
           text: b,
-          options: { bullet: true, breakLine: true, fontSize: 16, color: theme.bodyHex },
+          options: { bullet: true, breakLine: true, fontSize: hasSideVisual ? 14 : 16, color: theme.bodyHex },
         })),
-        { x: leftX, y: colY, w: 4.1, h: 3.0, rtlMode: rtl, align, valign: "top" },
+        { x: leftX, y: colY, w: colW, h: 3.0, rtlMode: rtl, align, valign: "top" },
       );
       if (col2.length > 0) {
         s.addText(
           col2.map((b) => ({
             text: b,
-            options: { bullet: true, breakLine: true, fontSize: 16, color: theme.bodyHex },
+            options: { bullet: true, breakLine: true, fontSize: hasSideVisual ? 14 : 16, color: theme.bodyHex },
           })),
-          { x: rightX, y: colY, w: 4.1, h: 3.0, rtlMode: rtl, align, valign: "top" },
+          { x: rightX, y: colY, w: colW, h: 3.0, rtlMode: rtl, align, valign: "top" },
         );
       }
     } else {
@@ -236,7 +293,7 @@ export async function buildPptx(
       }
     }
 
-    if (!hasTitle && !hasSubtitle && !hasBullets) {
+    if (!hasTitle && !hasSubtitle && !hasBullets && !hasSideVisual) {
       s.addText(" ", { x: contentX, y: 2.4, w: contentW, h: 1 });
     }
     if (slide.notes.trim().length > 0) {

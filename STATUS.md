@@ -96,3 +96,25 @@ Re-ran the full gate on a clean working tree (`git status` → 0 changes) after 
 - Repository: `https://github.com/aaeisa1985/Eisax_Studio.git` — branch `main`, `origin/main` == local `main` at `82ed7ac` (clean tree, fully pushed). Only documentation changed after this verification.
 
 **Not re-run this pass:** browser-driven E2E, because the desktop browser session was disconnected. The 8-check browser E2E above was completed and recorded earlier against `next start`; the server-side flows it covered are also asserted by the automated suites.
+
+---
+
+## Milestone 3 — Chart Engine, Smart Prompt-Aware Synthesis & Export Upgrade (2026-11-15)
+
+**Upgrades delivered:**
+- **Native Chart Schema & SVG Renderer:**
+  - Added `chartDataSchema` (`bar`, `line`, `pie` + `title`, `categories`, `values`, `unit`) to `slideItemSchema`, `documentBlockSchema`, `outlineSlideSchema`, and `outlineBlockSchema` (`src/lib/validation/projects.ts`, `src/lib/ai/types.ts`, `src/app/ai-actions.ts`).
+  - Created pure server/client React SVG component `src/components/SlideChart.tsx` rendering bar, line, and donut/pie charts in the editor canvas (`src/components/ProjectEditor.tsx`), print/PDF view (`src/app/projects/[id]/print/page.tsx`), and inline Chart Data editor controls.
+- **Native Office Chart Exports:**
+  - Upgraded `src/lib/export/pptx.ts` to emit native editable PowerPoint OOXML charts (`s.addChart(...)` producing `ppt/charts/chart1.xml`) with automatic layout scaling alongside slide text and images.
+  - Upgraded `src/lib/export/docx.ts` to export `chart` document blocks as headings paired with semantic `<w:tbl>` category/value data tables.
+- **Prompt-Aware Offline Generator & Mode Transparency:**
+  - Overhauled `src/lib/ai/demo.ts` (`DemoProvider`) to honor explicit requested slide counts (e.g., `12-slide` -> 12 distinct slides), extract clean brand/topic titles without prompt truncation, detect domain (`investor`, `report`, `educational`, `product`), bilingual EN/AR intent, and auto-attach relevant charts without repeating boilerplate sentences.
+  - Updated `src/lib/ai/openai.ts` prompt instructions to support optional `chart` payloads and requested slide counts.
+  - Added explicit `Offline Demo Generator (no AI_API_KEY)` vs `Live AI Provider` status badge and `.env.local` setup guidance in `src/components/CreateProjectDialog.tsx` and `src/components/AiAssist.tsx`.
+
+**Verified:**
+- `npm run typecheck` (`tsc --noEmit`) → exit 0.
+- `npm test` (`vitest run`) → **4 test files, 41/41 tests passed** (`phase1` 14, `phase2-export` 6, `phase3-ai` 14, `phase5-hardening` 7), including PPTX `ppt/charts/chart1.xml` OOXML verification, DOCX chart table export, and 12-slide bilingual EISAX investor deck generation.
+- `npm run build` (`next build`) → exit 0 (14 routes built cleanly).
+- Live browser verification on `http://localhost:3100` → generated `"Create a premium 12-slide investor presentation for EISAX, with charts, bilingual"`, verified 12 unique slides, rendered Bar/Line/Pie SVG charts on canvas, and exported `/api/projects/<id>/export/pptx` (`200 OK`, 211,565 bytes).
