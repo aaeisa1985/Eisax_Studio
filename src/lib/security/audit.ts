@@ -12,7 +12,9 @@ export async function audit(
     | "project.duplicate"
     | "ai.quota_denied"
     | "export.pptx"
-    | "export.docx",
+    | "export.docx"
+    | "billing.subscription_updated"
+    | "billing.subscription_canceled",
   detail: Record<string, unknown> = {},
 ): Promise<void> {
   try {

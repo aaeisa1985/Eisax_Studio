@@ -31,7 +31,7 @@ export default async function ProjectPage(props: { params: Promise<{ id: string 
   }
 
   const revisions = await listRevisions(user.id, id);
-  const usage = await getMonthlyUsage(user.id);
+  const usage = await getMonthlyUsage(user.id, workspaceId);
   const jar = await cookies();
   const locale = getLocale(jar.get(LOCALE_COOKIE)?.value, project.language);
 

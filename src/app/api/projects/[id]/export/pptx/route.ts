@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/auth/session";
-import { getPrimaryWorkspaceId } from "@/lib/auth/session";
+import { getCurrentUser, getPrimaryWorkspaceId } from "@/lib/auth/session";
 import { getProject } from "@/lib/projects/service";
 import { buildPptx } from "@/lib/export/pptx";
 import { audit } from "@/lib/security/audit";
+import { rateLimit } from "@/lib/security/rateLimit";
+import { checkExportAllowed } from "@/lib/billing/usage";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +14,17 @@ export async function GET(
 ) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const rl = rateLimit(`export:${user.id}`, 30, 60_000);
+  if (!rl.ok) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+
   const workspaceId = await getPrimaryWorkspaceId(user.id);
   if (!workspaceId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+  const entitlement = await checkExportAllowed(workspaceId, "pptx");
+  if (!entitlement.allowed) {
+    return NextResponse.json({ error: "plan_upgrade_required" }, { status: 403 });
+  }
 
   const { id } = await ctx.params;
   const project = await getProject(user.id, id);

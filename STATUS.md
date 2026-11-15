@@ -10,48 +10,69 @@
 
 **Adaptation (rationale recorded in ARCHITECTURE.md):** use PGlite (embedded real-Postgres WASM, Apache-2.0) with Drizzle so all DB code targets the Postgres dialect; swap to hosted `DATABASE_URL` later by changing one driver file.
 
-**Package license review:** next/react (MIT), drizzle-orm (Apache-2.0), @electric-sql/pglite (Apache-2.0), zod (MIT), tailwindcss (MIT), vitest (MIT). No GPL/copyleft runtime deps adopted.
+**Package license review:** next/react (MIT), drizzle-orm (Apache-2.0), @electric-sql/pglite (Apache-2.0), zod (MIT), tailwindcss (MIT), vitest (MIT), pptxgenjs (MIT), docx (MIT), jszip (MIT/GPLv3 dual). No incompatible copyleft runtime deps adopted.
 
-**Built:** docs (ARCHITECTURE/ROADMAP/STATUS/README/.env.example), git repo (local only, no remote).
+**Built:** docs (ARCHITECTURE/ROADMAP/STATUS/README/.env.example), git repo pushed to `https://github.com/aaeisa1985/Eisax_Studio.git`.
 
 ---
 
 ## Milestone 1 — Phase 1: Functional shell & persistence (2026-11-15)
 
 **Built (all real, no mocks):**
-- Next.js 15 App Router + TypeScript strict + Tailwind v4; PGlite (embedded Postgres) + Drizzle with SQL migrations (`src/lib/db/migrations/0001_init.sql`): users, sessions, workspaces, workspace_members, projects, project_revisions, audit_log.
-- Auth: sign-up / sign-in / sign-out. scrypt password hashing, opaque session tokens stored as SHA-256 hashes, HttpOnly SameSite=Lax cookies, server-side session lookup, per-IP rate limits on auth actions. Email verification / password reset **not implemented** (requires email provider config — disclosed below).
-- i18n: full EN/AR dictionaries, `dir` switched per locale (verified `rtl` in browser), per-element `dir="auto"` + `unicode-bidi: plaintext` for mixed content, locale switcher (cookie + persisted to user profile).
-- Landing page: value prop, demo prompt block, 4-tier pricing (marked as draft hypothesis), FAQ.
-- Dashboard: project grid with type badge, search, create dialog (title/type/language), rename inline, duplicate, soft-delete, empty/loading/error states.
-- Editors (shell): presentation editor (slide list, add/delete/move, title/subtitle/speaker notes) and document editor (heading/paragraph blocks); debounced autosave with saved/saving/error indicator; content validated server-side per type (Zod).
-- Revisions: every real content change creates a numbered revision (last 20 kept); restore endpoint verified. No-op autosaves are filtered (jsonb-normalized canonical comparison).
-- Health endpoint `/api/health` (DB ping), `npm run db:migrate`, `npm run db:reset`.
-- Fix during build: PGlite requires parent dir; jsonb key reordering required canonical stringify for change detection; `gen_random_uuid()` defaults added to migration SQL; LocaleSwitcher converted to client component.
+- Next.js 15 App Router + TypeScript strict + Tailwind v4; PGlite (embedded Postgres) + Drizzle with SQL migrations (`0001_init.sql`): users, sessions, workspaces, workspace_members, projects, project_revisions, audit_log.
+- Auth: sign-up / sign-in / sign-out. scrypt password hashing, opaque session tokens stored as SHA-256 hashes, HttpOnly SameSite=Lax cookies, server-side session lookup, per-IP rate limits on auth actions.
+- i18n: EN/AR dictionaries, `dir` switched per locale, per-element `dir="auto"` + `unicode-bidi: plaintext`, locale switcher.
+- Landing page, dashboard, editors, debounced autosave, numbered revisions (last 20 kept), `/api/health`.
+
+**Verified:** `npm run typecheck` exit 0, `npm test` 14/14 passed, `npm run build` succeeded.
+
+---
+
+## Milestone 2 — Phases 2–5: Full V1 Editors, AI Creation, Exports, Hardening & Billing Readiness (2026-11-15)
+
+**Built (real implementations; billing disabled behind feature flag):**
+- **Presentation editor & PPTX export (Phase 2):**
+  - Extended `presentationContentSchema` with themes (`default`, `obsidian`, `sky`, `gold`, `light` in `src/lib/projects/themes.ts`), layout presets (`title`, `title-body`, `two-col`, `quote`), bullet arrays, and native accent shapes (`none`, `bar`, `card`, `badge`).
+  - Visual slide thumbnails sidebar, duplicate slide, move up/down, delete, direction toggle (`ltr`/`rtl`), and keyboard/toolbar Undo & Redo (`Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y`).
+  - `src/lib/export/pptx.ts` outputs real 16:9 PPTX slides with native editable text runs, bullets (`<a:buChar>`), native PowerPoint shapes (`<p:sp>`), theme backgrounds/colors, RTL `rtlMode`, and speaker notes.
+- **AI-first creation pipeline & provider adapters (Phase 3):**
+  - `OpenAICompatibleProvider` (`src/lib/ai/openai.ts`) using `fetch` + 25s timeout + strict Zod schema validation, activated only when `AI_PROVIDER=openai-compatible`, `AI_BASE_URL`, and `AI_API_KEY` are configured; `DemoProvider` (`src/lib/ai/demo.ts`) remains the default zero-network deterministic provider.
+  - AI-first creation wizard in `CreateProjectDialog.tsx`: choose Presentation/Document, prompt, language, audience, tone, length, and theme → Step 1 generates & displays an editable outline (`aiPreviewOutlineAction`) → Step 2 persists project (`aiCreateProjectFromOutlineAction`) and opens the editor.
+  - Fixed `AiMenu` inline error display when operations fail before preview, and updated `AiGeneratePanel` to update editor state in-place without reloading the page.
+  - Server-side `usageLedger` + `generationJobs` tracking (`0002_ai_usage.sql`) and hard monthly free-tier quota enforcement (`20/month`).
+- **Structured document editor & DOCX/PDF export (Phase 4):**
+  - Extended `documentContentSchema` with `heading` (H1–H3), `paragraph`, `list` (ordered/unordered), `table` (editable rows/columns), `quote`, and `link` (http/https validated), plus safe `**bold**` / `*italic*` inline segment parser (`src/lib/utils/inlineFormat.ts`).
+  - Block controls in `ProjectEditor.tsx`: add any block type, move up/down, duplicate, delete, toggle direction, edit table rows/columns, and AI edit commands with preview/undo.
+  - `src/lib/export/docx.ts` exports native semantic OOXML headings, bold/italic `TextRun`s, bullets/lists, styled `Table`s with RTL cell support, quotes, and `ExternalHyperlink`s.
+  - `src/app/projects/[id]/print/page.tsx` renders themed 16:9 slide cards and rich document blocks for clean browser Print / Save as PDF.
+- **SaaS hardening, storage & billing readiness (Phase 5):**
+  - Migration `0003_subscriptions_assets.sql` adding `subscriptions` and `assets` tables.
+  - Rate limiting and `checkExportAllowed` on `/api/projects/[id]/export/pptx` and `/docx` + audit logging (`src/lib/security/audit.ts`).
+  - `src/lib/billing/stripe.ts` (HMAC-SHA256 webhook signature verification, idempotent subscription sync) + `/api/billing/webhook` & `/api/billing/checkout` strictly gated behind `FEATURE_BILLING=false` (returns `503 billing_disabled` by default).
+  - `src/lib/storage/index.ts`: S3-shaped `StorageAdapter` with local filesystem adapter (`./.data/storage`), MIME allowlist, 5 MiB limit, and path-traversal protection.
+  - Added `public/favicon.svg` so `Dockerfile` `COPY --from=builder /app/public ./public` succeeds; updated `.env.example`.
 
 **Verified (exact commands and results):**
-- `npm run typecheck` → exit 0, no errors.
-- `npm test` → **14/14 passed** (`tests/phase1.test.ts`): password hashing, rate limiter, session-token hashing, validation schemas, project tenancy (cross-workspace access denied for read/update/delete/list), CRUD, revision creation/no-op filtering/restore, duplicate, soft delete, Arabic RTL content creation.
-- `npm run build` → production build succeeded (6 routes).
-- Browser smoke test (Chromium, dev server):
-  - `/api/health` → 200 `{"status":"ok","db":"ready"}`
-  - Sign-up → auto signed in → `/dashboard` rendered with empty state.
-  - Created presentation "Solar Energy Overview" → editor opened, 1 seeded slide + revision #1.
-  - Added slide, typed title/subtitle → autosave "Saved" → reloaded → both slides and subtitle persisted (3 revisions).
-  - Locale switched to Arabic → `html dir="rtl" lang="ar"`, full Arabic UI, English slide content stayed LTR (screenshot: `docs/screenshots/editor-rtl-arabic.png`).
-  - Sign-out → redirected to landing as anonymous; `/dashboard` as anonymous → redirected to `/sign-in`.
+- `npm run db:migrate` → applied `0003_subscriptions_assets.sql` (exit 0).
+- `npm run typecheck` (`tsc --noEmit`) → exit 0, no errors.
+- `npm test` (`vitest run`) → **4 test files, 37/37 tests passed** (`tests/phase1.test.ts` 14, `tests/phase2-export.test.ts` 5, `tests/phase3-ai.test.ts` 13, `tests/phase5-hardening.test.ts` 5) — real PGlite DB, real OOXML PPTX/DOCX ZIP inspection, mocked `fetch` for `OpenAICompatibleProvider` (no live external calls), Stripe HMAC verification, and local storage adapter checks.
+- `npm run build` (`next build`) → exit 0, 13 routes built cleanly.
+- **Browser E2E smoke test** against live `next start -p 3100` (all 8 checks passed):
+  1. `GET /api/health` → 200 `{"status":"ok","db":"ready"}`.
+  2. `GET /` → 200, zero console errors.
+  3. Sign-up (`e2e-test-173166@eisax.dev`) → redirected to `/dashboard`, badge `Plan FREE · AI: 0/20` visible.
+  4. AI Presentation Wizard → prompt `"Solar energy adoption in UAE"` → Step 2 outline preview (5 editable slide titles) → created & opened editor.
+  5. Presentation editor → switched theme to `Obsidian Dark` → autosaved (`Saved`) → reloaded page → theme & 5 slides persisted.
+  6. PDF print view (`/projects/<id>/print`) → rendered 5 themed non-blank slide cards.
+  7. Switched UI locale to `العربية` (`<html dir="rtl">`) → AI Document Wizard (`"خطة الطاقة المتجددة"`) → opened RTL document editor with 13 Arabic blocks (H1/H2 headings, paragraphs, bullet list, 3x3 table, quote).
+  8. Mobile viewport (390x844) on `/` → zero horizontal overflow (`375.44px` content width).
 
 **Cost / quota (observed only):**
-- Agent model: GLM (free tier, per session harness). No token/credit metrics are exposed by the harness, so none are recorded (per PROJECT.md rule: do not invent metrics).
-- No external APIs called by the application; AI runs nothing external (demo path only in later phases).
+- No external paid AI, email, or billing APIs called during build or tests.
 
 **Open issues / limitations:**
-1. Email verification & password reset deferred (needs configured email provider; no external service used without approval).
-2. Rate limiting is per-process (documented in code); move to shared store before multi-instance deployment.
-3. AI generation not yet present (Phase 3) — creation flow is manual for now.
-4. Undo/redo inside the editor and full slide canvas (shapes/images) are Phase 2.
-5. PGlite is single-connection; swap to hosted Postgres requires a real `DATABASE_URL` + driver change (documented in ARCHITECTURE.md).
-6. Arabic webfont is system fallback (licensed font asset not provided).
-7. Playwright E2E suite not yet added; browser flow verified manually via automated browser this milestone.
-
-**Next:** Phase 2 — structured slide schema hardening, PPTX export (PptxGenJS) with OOXML inspection test, PDF export, undo/redo.
+1. Email verification & password reset remain deferred until an SMTP provider (`SMTP_URL`) is configured and approved.
+2. Rate limiting is in-memory per process; move to a shared store (e.g. Redis) before multi-instance deployment.
+3. PGlite is single-connection; swap `src/lib/db/index.ts` to `drizzle-orm/node-postgres` + `DATABASE_URL` when scaling to hosted Postgres.
+4. Billing (`FEATURE_BILLING=false`) stays hard-disabled until explicitly approved and Stripe secrets are configured.
+5. `docker build` was not executed locally because Docker is not installed on this machine.

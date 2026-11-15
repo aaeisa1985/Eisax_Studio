@@ -5,7 +5,6 @@ import { buildDocx } from "@/lib/export/docx";
 import { getDb } from "@/lib/db";
 import { users, workspaces, workspaceMembers, projects } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { createProject } from "@/lib/projects/service";
 
 const suffix = Date.now().toString(36);
 
@@ -25,14 +24,40 @@ async function seedProject(type: "presentation" | "document", content: unknown, 
 }
 
 describe("PPTX export (real OOXML inspection)", () => {
-  it("contains ordered slides with editable text runs", async () => {
+  it("contains ordered slides with editable text runs, bullets, shapes, and themes", async () => {
     const res = await buildPptx("Solar Overview", {
       schemaVersion: 1,
-      theme: "default",
+      theme: "obsidian",
       slides: [
-        { id: "s1", title: "First Slide Title", subtitle: "First subtitle", notes: "Speaker note one", dir: "ltr" },
-        { id: "s2", title: "عنوان الشريحة الثانية", subtitle: "نص عربي", notes: "", dir: "rtl" },
-        { id: "s3", title: "Third", subtitle: "", notes: "", dir: "ltr" },
+        {
+          id: "s1",
+          title: "First Slide Title",
+          subtitle: "First subtitle",
+          bullets: ["Point one", "Point two"],
+          layout: "title-body",
+          accentShape: "bar",
+          notes: "Speaker note one",
+          dir: "ltr",
+        },
+        {
+          id: "s2",
+          title: "عنوان الشريحة الثانية",
+          subtitle: "نص عربي",
+          bullets: ["النقطة الأولى", "النقطة الثانية"],
+          layout: "two-col",
+          accentShape: "card",
+          notes: "",
+          dir: "rtl",
+        },
+        {
+          id: "s3",
+          title: "Quote statement",
+          subtitle: "Author",
+          layout: "quote",
+          accentShape: "badge",
+          notes: "",
+          dir: "ltr",
+        },
       ],
     });
     expect("error" in res).toBe(false);
@@ -41,7 +66,6 @@ describe("PPTX export (real OOXML inspection)", () => {
     expect(data.length).toBeGreaterThan(5000);
 
     const zip = await JSZip.loadAsync(data);
-    // Structure: exactly 3 slide parts + presentation rels referencing them in order
     const slideNames = Object.keys(zip.files).filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
     expect(slideNames.length).toBe(3);
     const presXml = await zip.file("ppt/presentation.xml")!.async("string");
@@ -49,8 +73,13 @@ describe("PPTX export (real OOXML inspection)", () => {
     expect((idList.match(/<p:sldId /g) ?? []).length).toBe(3);
 
     const s1 = await zip.file("ppt/slides/slide1.xml")!.async("string");
-    expect(s1).toContain("<a:t>First Slide Title</a:t>"); // editable text run
+    expect(s1).toContain("<a:t>First Slide Title</a:t>");
     expect(s1).toContain("<a:t>First subtitle</a:t>");
+    expect(s1).toContain("<a:t>Point one</a:t>");
+    expect(s1).toContain("0B1420"); // obsidian theme background
+    expect(s1).toContain("<p:sp>"); // native shape + text shapes
+    expect(s1).toContain("<a:buChar"); // native PPTX bullet
+
     const notes = Object.keys(zip.files).filter((n) => n.startsWith("ppt/notesSlides/notesSlide"));
     expect(notes.length).toBeGreaterThanOrEqual(1);
     const n1 = await zip.file("ppt/notesSlides/notesSlide1.xml")!.async("string");
@@ -58,7 +87,8 @@ describe("PPTX export (real OOXML inspection)", () => {
 
     const s2 = await zip.file("ppt/slides/slide2.xml")!.async("string");
     expect(s2).toContain("<a:t>عنوان الشريحة الثانية</a:t>");
-    expect(s2).toContain('rtl="1"'); // RTL mode persisted
+    expect(s2).toContain('rtl="1"');
+    expect(s2).toContain("<a:t>النقطة الأولى</a:t>");
   });
 
   it("rejects invalid slide content", async () => {
@@ -68,14 +98,26 @@ describe("PPTX export (real OOXML inspection)", () => {
 });
 
 describe("DOCX export (real OOXML inspection)", () => {
-  it("contains semantic headings, paragraphs and bidi text", async () => {
+  it("contains semantic headings, paragraphs, lists, tables, links, quotes, and bidi text", async () => {
     const res = await buildDocx("التقرير السنوي", {
       schemaVersion: 1,
       blocks: [
         { id: "b1", kind: "heading", level: 1, text: "Annual Report", dir: "ltr" },
-        { id: "b2", kind: "paragraph", text: "Mixed English داخل فقرة عربية.", dir: "rtl" },
+        { id: "b2", kind: "paragraph", text: "Mixed English داخل **فقرة** عربية.", dir: "rtl" },
         { id: "b3", kind: "heading", level: 2, text: "ملخص تنفيذي", dir: "rtl" },
-        { id: "b4", kind: "paragraph", text: "Plain paragraph.", dir: "ltr" },
+        { id: "b4", kind: "list", ordered: false, items: ["First item", "العنصر الثاني"], text: "", dir: "ltr" },
+        {
+          id: "b5",
+          kind: "table",
+          text: "",
+          rows: [
+            ["البند", "Value"],
+            ["الطاقة الشمسية", "100 MW"],
+          ],
+          dir: "rtl",
+        },
+        { id: "b6", kind: "quote", text: "Key insight here.", dir: "ltr" },
+        { id: "b7", kind: "link", text: "EISAX", url: "https://eisax.example.com", dir: "ltr" },
       ],
     });
     expect("error" in res).toBe(false);
@@ -85,12 +127,15 @@ describe("DOCX export (real OOXML inspection)", () => {
     const zip = await JSZip.loadAsync(data);
     const xml = await zip.file("word/document.xml")!.async("string");
     expect(xml).toContain("Annual Report");
-    expect(xml).toContain("Plain paragraph.");
     expect(xml).toContain("ملخص تنفيذي");
     expect((xml.match(/<w:pStyle w:val="Heading[12]"\/>/g) ?? []).length).toBe(2);
-    // bidi paragraphs present for RTL blocks
     expect(xml).toContain("<w:bidi/>");
     expect(xml).toContain("Mixed English");
+    expect(xml).toContain("<w:tbl>");
+    expect(xml).toContain("100 MW");
+    expect(xml).toContain("First item");
+    expect(xml).toContain("Key insight here.");
+    expect(xml).toContain("w:hyperlink");
   });
 
   it("rejects invalid block content", async () => {
@@ -101,11 +146,15 @@ describe("DOCX export (real OOXML inspection)", () => {
 
 describe("export tenancy via project service", () => {
   it("a stranger cannot reach the project that would feed an export", async () => {
-    const id = await seedProject("presentation", {
-      schemaVersion: 1,
-      theme: "default",
-      slides: [{ id: "s1", title: "Secret", subtitle: "", notes: "", dir: "ltr" }],
-    }, "Secret Deck");
+    const id = await seedProject(
+      "presentation",
+      {
+        schemaVersion: 1,
+        theme: "default",
+        slides: [{ id: "s1", title: "Secret", subtitle: "", notes: "", dir: "ltr" }],
+      },
+      "Secret Deck",
+    );
     const db = await getDb();
     const { getProject } = await import("@/lib/projects/service");
     const other = (
@@ -117,7 +166,6 @@ describe("export tenancy via project service", () => {
     const w2 = (await db.insert(workspaces).values({ name: "w2", ownerId: other.id }).returning())[0]!;
     await db.insert(workspaceMembers).values({ workspaceId: w2.id, userId: other.id, role: "owner" });
     expect(await getProject(other.id, id)).toBeNull();
-    // cleanup stranger workspace keeps test data small
     await db.delete(workspaces).where(eq(workspaces.id, w2.id));
     void id;
   });

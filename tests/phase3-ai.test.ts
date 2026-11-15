@@ -8,7 +8,7 @@ import { generateInputSchema, editInputSchema } from "@/lib/ai/types";
 import { checkAiQuota, recordAiUsage, getMonthlyUsage } from "@/lib/billing/usage";
 import { planForWorkspace } from "@/lib/billing/plans";
 import { createProject, getProject, updateProject } from "@/lib/projects/service";
-import { buildPptx, buildDocx } from "@/lib/export/pptx";
+import { buildPptx } from "@/lib/export/pptx";
 import { buildDocx as buildDocxDoc } from "@/lib/export/docx";
 
 const suffix = Date.now().toString(36);
@@ -55,12 +55,50 @@ describe("demo AI provider (deterministic, offline)", () => {
     expect(long.slides?.[1]!.title).toMatch(/[\u0600-\u06FF]/);
   });
 
-  it("generates document blocks with headings and paragraphs", async () => {
+  it("generates document blocks with headings, paragraphs, list, table, and quote", async () => {
     const input = { projectId: "00000000-0000-0000-0000-000000000000", prompt: "Quarterly report", tone: "formal" as const, length: "medium" as const };
     const outline = await provider.generateOutline(input, "document", "en");
     const kinds = outline.blocks!.map((b) => b.kind);
     expect(kinds[0]).toBe("heading");
     expect(kinds.filter((k) => k === "paragraph").length).toBeGreaterThanOrEqual(3);
+    expect(kinds).toContain("list");
+    expect(kinds).toContain("table");
+    expect(kinds).toContain("quote");
+  });
+
+  it("OpenAICompatibleProvider validates outline JSON and handles errors safely (mocked fetch)", async () => {
+    const { OpenAICompatibleProvider } = await import("@/lib/ai/openai");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  title: "Mocked Deck",
+                  language: "en",
+                  slides: [{ title: "Slide 1", subtitle: "Sub", bullets: ["A", "B"], layout: "title-body", accentShape: "bar", notes: "" }],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch;
+
+    try {
+      const openai = new OpenAICompatibleProvider("https://example.invalid/v1", "sk-test", "gpt-test");
+      const out = await openai.generateOutline(
+        { projectId: "00000000-0000-0000-0000-000000000000", prompt: "Mocked Deck", tone: "friendly", length: "short" },
+        "presentation",
+        "en",
+      );
+      expect(out.title).toBe("Mocked Deck");
+      expect(out.slides?.[0]?.bullets).toEqual(["A", "B"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("edit operations shorten, expand and translate", async () => {

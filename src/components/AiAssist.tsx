@@ -1,10 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { aiGenerateAction, aiEditAction, getAiUsageAction } from "@/app/ai-actions";
-import { t, type Locale } from "@/lib/i18n";
+import { aiGenerateAction, aiEditAction } from "@/app/ai-actions";
+import { type Locale } from "@/lib/i18n";
 
-type AiResult = { ok: boolean; error?: string; text?: string; used?: number; limit?: number };
+type AiResult = {
+  ok: boolean;
+  error?: string;
+  text?: string;
+  used?: number;
+  limit?: number;
+};
 
 const OPS = ["rewrite", "shorten", "expand", "translate", "tone"] as const;
 type Op = (typeof OPS)[number];
@@ -46,33 +52,43 @@ export function errorLabel(error: string | undefined, locale: Locale): string {
   return map[error ?? "failed"] ?? error ?? "Error";
 }
 
-function ErrorNote({ error, locale }: { error: string | undefined; locale: Locale }) {
+export function ErrorNote({ error, locale }: { error: string | undefined; locale: Locale }) {
   if (!error) return null;
   return (
-    <p role="alert" className="mt-3 rounded-lg border p-2.5 text-xs" style={{ borderColor: "#4a2430", color: "#ff8b8b" }}>
+    <p
+      role="alert"
+      className="mt-2 rounded-lg border p-2.5 text-xs"
+      style={{ borderColor: "#4a2430", background: "rgba(90,22,38,0.22)", color: "#ff9b9b" }}
+    >
       {errorLabel(error, locale)}
       {error === "quota_exceeded" && (
         <span className="ms-1" style={{ color: "var(--text-dim)" }}>
-          {locale === "ar" ? "الترقية تُفعَّل لاحقًا بعد اعتماد الفوترة." : "Upgrades become available once billing is approved."}
+          {locale === "ar"
+            ? "الترقية تُفعَّل لاحقًا بعد اعتماد الفوترة."
+            : "Upgrades become available once billing is approved."}
         </span>
       )}
     </p>
   );
 }
 
-/** Per-element AI edit with explicit preview + apply/undo. */
+/** Per-element AI edit with explicit preview + apply/undo and inline error reporting. */
 export function AiMenu({
   projectId,
   text,
   targetLang,
   locale,
+  label,
   onApply,
+  onUsageChange,
 }: {
   projectId: string;
   text: string;
   targetLang?: "en" | "ar";
   locale: Locale;
+  label?: string;
   onApply: (next: string) => void;
+  onUsageChange?: (usage: { used: number; limit: number }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<Op | null>(null);
@@ -82,31 +98,44 @@ export function AiMenu({
   async function run(op: Op) {
     setBusy(op);
     setError(undefined);
-    const res: AiResult = await aiEditAction({ projectId, operation: op, text, targetLang });
+    const inferredTarget =
+      targetLang ?? (/[\u0600-\u06FF]/.test(text) ? "en" : "ar");
+    const res: AiResult = await aiEditAction({
+      projectId,
+      operation: op,
+      text,
+      targetLang: op === "translate" ? inferredTarget : undefined,
+    });
     setBusy(null);
     if (!res.ok) {
       setError(res.error);
       return;
     }
+    if (typeof res.used === "number" && typeof res.limit === "number") {
+      onUsageChange?.({ used: res.used, limit: res.limit });
+    }
     setPreview({ op, original: text, next: res.text! });
   }
 
   return (
-    <span className="relative inline-flex">
+    <span className="relative inline-flex flex-col items-start">
       <button
         type="button"
         className="btn btn-ghost !px-2 !py-0.5 text-xs"
         aria-haspopup="menu"
         aria-expanded={open}
-        title={locale === "ar" ? "مساعد الذكاء الاصطناعي (تجريبي)" : "AI assist (demo)"}
-        onClick={() => setOpen((v) => !v)}
+        title={locale === "ar" ? "مساعد الذكاء الاصطناعي" : "AI assist"}
+        onClick={() => {
+          setError(undefined);
+          setOpen((v) => !v);
+        }}
       >
-        ✨ AI
+        ✨ {label ?? "AI"}
       </button>
       {open && (
         <span
           role="menu"
-          className="absolute top-8 z-30 flex min-w-36 flex-col overflow-hidden rounded-lg border shadow-xl"
+          className="absolute top-8 z-30 flex min-w-40 flex-col overflow-hidden rounded-lg border shadow-xl"
           style={{ background: "var(--obsidian-2)", borderColor: "var(--border)" }}
           onMouseLeave={() => setOpen(false)}
         >
@@ -117,6 +146,7 @@ export function AiMenu({
               role="menuitem"
               disabled={busy !== null || text.trim().length === 0}
               className="block w-full px-3 py-2 text-start text-xs hover:bg-white/5 disabled:opacity-40"
+              style={{ color: "var(--text)" }}
               onClick={() => {
                 setOpen(false);
                 void run(op);
@@ -129,29 +159,34 @@ export function AiMenu({
         </span>
       )}
 
+      {error && !preview && (
+        <div className="mt-1 max-w-xs">
+          <ErrorNote error={error} locale={locale} />
+        </div>
+      )}
+
       {preview && (
         <div
           role="dialog"
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: "rgba(2,6,12,0.7)" }}
+          style={{ background: "rgba(2,6,12,0.72)" }}
           onClick={(e) => {
             if (e.target === e.currentTarget) setPreview(null);
           }}
         >
-          <div className="card w-full max-w-lg p-5">
+          <div className="card w-full max-w-lg p-5" style={{ color: "var(--text)" }}>
             <h3 className="text-sm font-bold">
-              {opLabel(preview.op, locale)} ·{" "}
-              <span style={{ color: "var(--text-dim)" }}>
-                {locale === "ar" ? "مشغل تجريبي — بدون اتصال خارجي" : "demo provider — no external calls"}
-              </span>
+              {opLabel(preview.op, locale)}
             </h3>
             <div className="mt-3 max-h-72 space-y-3 overflow-auto text-sm">
               <div className="rounded-lg border p-3" style={{ borderColor: "var(--border)" }}>
                 <p className="mb-1 text-xs font-bold" style={{ color: "var(--text-dim)" }}>
                   {locale === "ar" ? "قبل" : "Before"}
                 </p>
-                <p dir="auto" style={{ color: "var(--text-dim)" }}>{preview.original || "—"}</p>
+                <p dir="auto" style={{ color: "var(--text-dim)" }}>
+                  {preview.original || "—"}
+                </p>
               </div>
               <div className="rounded-lg border p-3" style={{ borderColor: "rgba(0,212,200,0.4)" }}>
                 <p className="mb-1 text-xs font-bold" style={{ color: "var(--turquoise)" }}>
@@ -183,56 +218,84 @@ export function AiMenu({
   );
 }
 
-/** Generate full content from a prompt via the demo provider (server-side quota enforced). */
+/** Generate full content from a prompt via configured AI provider (or deterministic demo fallback). */
 export function AiGeneratePanel({
   projectId,
-  type,
   locale,
   usage,
+  theme,
+  onGenerated,
+  onUsageChange,
 }: {
   projectId: string;
-  type: "presentation" | "document";
   locale: Locale;
   usage: { used: number; limit: number };
+  theme?: string;
+  onGenerated: (content: unknown) => void;
+  onUsageChange?: (usage: { used: number; limit: number }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const [meter, setMeter] = useState(usage);
+  const [statusNote, setStatusNote] = useState<string | null>(null);
 
   async function submit(formData: FormData) {
     setBusy(true);
     setError(undefined);
+    setStatusNote(null);
     const res = await aiGenerateAction({
       projectId,
       prompt: String(formData.get("prompt") ?? ""),
+      audience: String(formData.get("audience") ?? "").trim() || undefined,
       tone: String(formData.get("tone") ?? "friendly"),
       length: String(formData.get("length") ?? "medium"),
+      theme,
     });
     setBusy(false);
     if (!res.ok) {
       setError(res.error);
-      if (typeof res.used === "number" && typeof res.limit === "number") setMeter({ used: res.used, limit: res.limit });
+      if (typeof res.used === "number" && typeof res.limit === "number") {
+        onUsageChange?.({ used: res.used, limit: res.limit });
+      }
       return;
     }
-    // Server content replaced; reload to fetch the new server-rendered editor.
-    window.location.reload();
+    onUsageChange?.({ used: res.used, limit: res.limit });
+    onGenerated(res.content);
+    setStatusNote(
+      res.providerDemo
+        ? locale === "ar"
+          ? "تم التوليد عبر المشغّل التجريبي المحلي."
+          : "Generated with local demo provider."
+        : locale === "ar"
+          ? "تم التوليد بنجاح."
+          : "Generated successfully.",
+    );
+    setOpen(false);
   }
 
   return (
-    <div>
+    <div className="mb-3">
       <div className="flex items-center justify-between gap-2">
-        <button type="button" className="btn btn-ghost w-full justify-center !py-1.5 text-xs" onClick={() => setOpen((v) => !v)}>
+        <button
+          type="button"
+          className="btn btn-primary w-full justify-center !py-1.5 text-xs"
+          onClick={() => setOpen((v) => !v)}
+        >
           ✨ {locale === "ar" ? "توليد بالذكاء الاصطناعي" : "Generate with AI"}
         </button>
       </div>
+      {statusNote && (
+        <p className="mt-1.5 text-[11px]" style={{ color: "var(--turquoise)" }}>
+          {statusNote}
+        </p>
+      )}
       {open && (
-        <form action={submit} className="card mt-2 space-y-3 p-3">
+        <form action={submit} className="card mt-2 space-y-2.5 p-3">
           <p className="text-xs" style={{ color: "var(--text-dim)" }} dir="auto">
-            {locale === "ar"
-              ? "مشغّل تجريبي محلي (بدون اتصال خارجي). الحصة: "
-              : "Local demo provider (no external calls). Quota: "}
-            {meter.used}/{meter.limit}
+            {locale === "ar" ? "الحصة الشهرية: " : "Monthly quota: "}
+            <strong>
+              {usage.used}/{usage.limit}
+            </strong>
           </p>
           <textarea
             name="prompt"
@@ -248,8 +311,20 @@ export function AiGeneratePanel({
                 : "e.g. A presentation about solar energy benefits for students…"
             }
           />
+          <input
+            name="audience"
+            maxLength={200}
+            dir="auto"
+            className="input !py-1.5 text-xs"
+            placeholder={locale === "ar" ? "الجمهور المستهدف (اختياري)" : "Target audience (optional)"}
+          />
           <div className="flex gap-2">
-            <select name="tone" defaultValue="friendly" className="input !py-1.5 text-xs" aria-label={locale === "ar" ? "النبرة" : "Tone"}>
+            <select
+              name="tone"
+              defaultValue="friendly"
+              className="input !py-1.5 text-xs"
+              aria-label={locale === "ar" ? "النبرة" : "Tone"}
+            >
               {(["friendly", "formal", "persuasive", "educational"] as const).map((tone) => (
                 <option key={tone} value={tone}>
                   {locale === "ar"
@@ -258,7 +333,12 @@ export function AiGeneratePanel({
                 </option>
               ))}
             </select>
-            <select name="length" defaultValue="medium" className="input !py-1.5 text-xs" aria-label={locale === "ar" ? "الطول" : "Length"}>
+            <select
+              name="length"
+              defaultValue="medium"
+              className="input !py-1.5 text-xs"
+              aria-label={locale === "ar" ? "الطول" : "Length"}
+            >
               {(["short", "medium", "long"] as const).map((len) => (
                 <option key={len} value={len}>
                   {locale === "ar"
@@ -282,5 +362,3 @@ export function AiGeneratePanel({
     </div>
   );
 }
-
-/** Small usage meter text for the sidebar. */

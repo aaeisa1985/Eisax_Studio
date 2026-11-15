@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { slideAccentShapeSchema, slideLayoutSchema } from "@/lib/validation/projects";
 
 export const aiOperationSchema = z.enum(["rewrite", "shorten", "expand", "translate", "tone"]);
 export type AiOperation = z.infer<typeof aiOperationSchema>;
@@ -6,8 +7,10 @@ export type AiOperation = z.infer<typeof aiOperationSchema>;
 export const generateInputSchema = z.object({
   projectId: z.string().uuid(),
   prompt: z.string().trim().min(3).max(2000),
+  audience: z.string().trim().max(200).optional(),
   tone: z.enum(["friendly", "formal", "persuasive", "educational"]).default("friendly"),
   length: z.enum(["short", "medium", "long"]).default("medium"),
+  theme: z.string().trim().max(40).optional(),
 });
 export type GenerateInput = z.infer<typeof generateInputSchema>;
 
@@ -19,15 +22,43 @@ export const editInputSchema = z.object({
 });
 export type EditInput = z.infer<typeof editInputSchema>;
 
-export type OutlineSlide = { title: string; subtitle: string; notes: string };
-export type OutlineBlock = { kind: "heading" | "paragraph"; level: number; text: string };
-export type Outline = { title: string; language: "en" | "ar"; slides?: OutlineSlide[]; blocks?: OutlineBlock[] };
+export const outlineSlideSchema = z.object({
+  title: z.string().max(500),
+  subtitle: z.string().max(1000).default(""),
+  bullets: z.array(z.string().max(500)).max(12).default([]),
+  layout: slideLayoutSchema.default("title-body"),
+  accentShape: slideAccentShapeSchema.default("bar"),
+  notes: z.string().max(5000).default(""),
+});
+export type OutlineSlide = z.infer<typeof outlineSlideSchema>;
+
+export const outlineBlockSchema = z.object({
+  kind: z.enum(["heading", "paragraph", "list", "table", "quote"]),
+  level: z.number().int().min(0).max(6).default(0),
+  text: z.string().max(20000).default(""),
+  ordered: z.boolean().optional(),
+  items: z.array(z.string().max(2000)).max(100).optional(),
+  rows: z.array(z.array(z.string().max(1000)).max(12)).max(50).optional(),
+});
+export type OutlineBlock = z.infer<typeof outlineBlockSchema>;
+
+export const outlineSchema = z.object({
+  title: z.string().min(1).max(200),
+  language: z.enum(["en", "ar"]),
+  slides: z.array(outlineSlideSchema).optional(),
+  blocks: z.array(outlineBlockSchema).optional(),
+});
+export type Outline = z.infer<typeof outlineSchema>;
 
 export interface AIProvider {
   readonly name: string;
   readonly model: string;
   /** Human-readable label for the UI; demo provider must self-identify. */
   readonly isDemo: boolean;
-  generateOutline(input: GenerateInput, type: "presentation" | "document", language: "en" | "ar"): Promise<Outline>;
+  generateOutline(
+    input: GenerateInput,
+    type: "presentation" | "document",
+    language: "en" | "ar",
+  ): Promise<Outline>;
   editText(input: EditInput): Promise<{ text: string }>;
 }

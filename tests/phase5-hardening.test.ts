@@ -1,9 +1,14 @@
 import { describe, expect, it, beforeAll } from "vitest";
+import { createHmac } from "node:crypto";
+import path from "node:path";
+import { rmSync } from "node:fs";
 import { getDb } from "@/lib/db";
 import { auditLog, users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { audit } from "@/lib/security/audit";
 import { planForWorkspace, BILLING_ENABLED } from "@/lib/billing/plans";
+import { verifyStripeSignature } from "@/lib/billing/stripe";
+import { LocalStorageAdapter } from "@/lib/storage";
 import { hashPassword } from "@/lib/auth/password";
 
 const suffix = Date.now().toString(36);
@@ -29,7 +34,7 @@ describe("audit log", () => {
   });
 });
 
-describe("plan entitlements", () => {
+describe("plan entitlements & Stripe webhook verification", () => {
   it("billing disabled => every workspace is free, regardless of stored plan", () => {
     expect(BILLING_ENABLED).toBe(false); // feature flag default
     expect(planForWorkspace("pro").id).toBe("free");
@@ -42,6 +47,39 @@ describe("plan entitlements", () => {
     expect(free.aiOperationsPerMonth).toBeGreaterThan(0);
     expect(free.aiOperationsPerMonth).toBeLessThanOrEqual(20);
     expect(free.exports).toContain("pdf");
-    expect(free.exports).not.toContain("pptx"); // paid export per draft pricing
+    expect(free.exports).not.toContain("pptx");
+  });
+
+  it("verifies valid Stripe webhook signatures and rejects forged or expired ones", () => {
+    const secret = "whsec_test_secret";
+    const payload = JSON.stringify({ id: "evt_1", type: "customer.subscription.updated" });
+    const ts = 1_700_000_000;
+    const sig = createHmac("sha256", secret).update(`${ts}.${payload}`, "utf8").digest("hex");
+
+    expect(verifyStripeSignature(payload, `t=${ts},v1=${sig}`, secret, ts + 10)).toBe(true);
+    expect(verifyStripeSignature(payload, `t=${ts},v1=${sig}`, secret, ts + 600)).toBe(false);
+    expect(verifyStripeSignature(payload, `t=${ts},v1=deadbeef`, secret, ts + 10)).toBe(false);
+    expect(verifyStripeSignature(payload, null, secret, ts + 10)).toBe(false);
+  });
+});
+
+describe("local storage adapter", () => {
+  it("enforces MIME allowlist and persists/reads/removes valid images", async () => {
+    const root = path.resolve(process.cwd(), ".data", `test-storage-${suffix}`);
+    const adapter = new LocalStorageAdapter(root);
+    try {
+      await expect(
+        adapter.put({ workspaceId: "ws1", mimeType: "application/x-msdownload", bytes: Buffer.from("MZ") }),
+      ).rejects.toThrow("unsupported_mime_type");
+
+      const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      const { key } = await adapter.put({ workspaceId: "ws1", mimeType: "image/png", bytes });
+      expect(key.startsWith("ws1/")).toBe(true);
+      expect(await adapter.get(key)).toEqual(bytes);
+      await adapter.remove(key);
+      expect(await adapter.get(key)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

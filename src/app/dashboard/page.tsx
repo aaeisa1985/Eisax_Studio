@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { signOutAction } from "@/lib/auth/actions";
 import { getCurrentUser, getPrimaryWorkspaceId } from "@/lib/auth/session";
 import { listProjects } from "@/lib/projects/service";
+import { getMonthlyUsage } from "@/lib/billing/usage";
+import { BILLING_ENABLED } from "@/lib/billing/plans";
 import { LOCALE_COOKIE, getLocale, t } from "@/lib/i18n";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
@@ -19,11 +21,13 @@ export default async function DashboardPage(props: {
   const workspaceId = await getPrimaryWorkspaceId(user.id);
   const jar = await cookies();
   const locale = getLocale(jar.get(LOCALE_COOKIE)?.value, user.locale);
+  const ar = locale === "ar";
   const tr = (k: Parameters<typeof t>[1]) => t(locale, k);
 
   const sp = await props.searchParams;
   const q = sp.q?.trim() || undefined;
   const projects = workspaceId ? await listProjects(user.id, workspaceId, { q }) : [];
+  const usage = await getMonthlyUsage(user.id, workspaceId);
 
   return (
     <div className="min-h-dvh">
@@ -33,6 +37,22 @@ export default async function DashboardPage(props: {
             EISAX&nbsp;Studio
           </Link>
           <div className="flex items-center gap-3">
+            <span
+              className="hidden rounded-full border px-3 py-1 text-xs sm:inline-flex"
+              style={{ borderColor: "var(--border-strong)", color: "var(--text-dim)" }}
+              title={
+                BILLING_ENABLED
+                  ? undefined
+                  : ar
+                    ? "الفوترة معطّلة (خطة مجانية)"
+                    : "Billing disabled (Free plan active)"
+              }
+            >
+              {ar ? "الخطة:" : "Plan:"}&nbsp;
+              <strong style={{ color: "var(--turquoise)" }}>{usage.planId.toUpperCase()}</strong>
+              &nbsp;·&nbsp;
+              {ar ? "AI:" : "AI:"} {usage.used}/{usage.limit}
+            </span>
             <LocaleSwitcher current={locale} />
             <span className="hidden text-sm sm:inline" style={{ color: "var(--text-dim)" }} dir="auto">
               {user.displayName}
@@ -49,7 +69,7 @@ export default async function DashboardPage(props: {
       <main className="mx-auto max-w-6xl px-5 py-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-3xl font-bold">{tr("dashboardTitle")}</h1>
-          <CreateProjectDialog locale={locale} />
+          <CreateProjectDialog locale={locale} initialUsage={{ used: usage.used, limit: usage.limit }} />
         </div>
 
         <form className="mt-6" role="search">
