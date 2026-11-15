@@ -55,3 +55,9 @@ Status legend: ☐ pending · ◐ in progress · ☑ done (see STATUS.md for evi
 - [x] UAX #9 first-strong auto-RTL + `unicode-bidi: plaintext` across TipTap Word & 16:9 Slide Canvas editors, PDF print view, DOCX (`<w:bidi/>` + `START`/`END` + per-run `w:rtl`), and PPTX (`rtl="1"` per run)
 - [x] Crisp Light Mode & Dark Mode toggle (`ThemeSwitcher`, cookie + SSR `data-ui-theme`) across Landing, Dashboard, and Editors
 - [x] Installable standalone fullscreen PWA (`/manifest.webmanifest`, `/sw.js`, PNG/maskable icons, `PwaInstallButton`, edge-to-edge `FullscreenButton`)
+
+## Phase 8 — Rich Media/Chart/Table Line-Drag Controls, Light Ribbon & Bilingual Typography ☑
+- [x] Light Mode sticky ribbon, `<select>` options, and alert/banner contrast fixes (`WordProcessor.tsx`, `SlideCanvasEditor.tsx`, `AiAssist.tsx`, `globals.css`)
+- [x] 8-handle resizing, edge crop bars + numeric crop (`<a:srcRect>` OOXML), rotation, alignment, and live `<ChartDataEditor>` across Word & Slides
+- [x] Table column + horizontal row border drag resizing in Word (`colWidths`/`rowHeights`) and native draggable `kind: "table"` element in Slide Canvas + PPTX/DOCX/Print sync
+- [x] 15 Arabic/Latin fonts, `8pt–72pt` / `8–72px` sizes, 10 numbering/bullet styles (`arabic-indic`, `arabic`, roman, alpha, bullets), `١٢٣↔123` digit script converter, and slide/page numbering toggles

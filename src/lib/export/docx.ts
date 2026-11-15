@@ -1,12 +1,16 @@
+import JSZip from "jszip";
 import {
   AlignmentType,
   BorderStyle,
   Document,
   ExternalHyperlink,
+  Footer,
   HeadingLevel,
+  HeightRule,
   ImageRun,
   LevelFormat,
   Packer,
+  PageNumber,
   PageOrientation,
   Paragraph,
   ShadingType,
@@ -19,11 +23,13 @@ import {
 } from "docx";
 import {
   documentContentSchema,
+  type ImageCrop,
   type InlineRun,
   type TextAlign,
 } from "@/lib/validation/projects";
 import { parseInlineSegments } from "@/lib/utils/inlineFormat";
 import { splitBidiRunChunks } from "@/lib/utils/bidi";
+import { buildOoxmlSrcRect, hasCrop } from "@/lib/utils/mediaStyle";
 import type { AssetResolver } from "@/lib/storage/assets";
 
 export type DocxResult = { fileName: string; data: Buffer };
@@ -65,6 +71,7 @@ function makeTextRuns(run: InlineRun, rtl: boolean, fallbackColor?: string): Tex
         strike: run.strike,
         color: cleanColor(run.color) ?? fallbackColor,
         size: run.fontSize ? Math.round(run.fontSize * 2) : undefined,
+        font: run.fontFamily || undefined,
         rightToLeft: ch.rtl,
       }),
   );
@@ -129,6 +136,40 @@ export async function buildDocx(
   const blocks = parsed.data.blocks;
   const pageLayout = parsed.data.pageLayout;
 
+  const baseW = pageLayout?.size === "letter" ? 12240 : 11906;
+  const baseH = pageLayout?.size === "letter" ? 15840 : 16838;
+  const landscape = pageLayout?.orientation === "landscape";
+  const marginTwips =
+    pageLayout?.margins === "narrow" ? 720 : pageLayout?.margins === "wide" ? 2160 : 1440;
+  const contentWidthTwips = Math.max(2400, (landscape ? baseH : baseW) - marginTwips * 2);
+
+  const numberingRefForStyle = (ordered: boolean | undefined, listStyle: string | undefined) => {
+    switch (listStyle) {
+      case "arabic-indic":
+        return "eisax-arabic-indic";
+      case "arabic":
+        return "eisax-arabic";
+      case "upper-alpha":
+        return "eisax-upper-alpha";
+      case "lower-alpha":
+        return "eisax-lower-alpha";
+      case "upper-roman":
+        return "eisax-upper-roman";
+      case "lower-roman":
+        return "eisax-lower-roman";
+      case "circle":
+        return "eisax-bullet-circle";
+      case "square":
+        return "eisax-bullet-square";
+      case "decimal":
+        return "eisax-ordered";
+      default:
+        return ordered ? "eisax-ordered" : null;
+    }
+  };
+
+  const imageCrops: Array<ImageCrop | undefined> = [];
+
   // Include document title header paragraph only when the document does not already start with Heading 1
   const firstBlock = blocks[0];
   const startsWithH1 = firstBlock?.kind === "heading" && (firstBlock.level ?? 2) === 1;
@@ -172,13 +213,14 @@ export async function buildDocx(
     } else if (block.kind === "list") {
       const items = (block.items ?? []).filter((item) => item.trim().length > 0);
       const effectiveItems = items.length > 0 ? items : [block.text || " "];
+      const numRef = numberingRefForStyle(block.ordered, block.listStyle);
       effectiveItems.forEach((item, idx) => {
         const itemRuns = block.listRuns?.[idx];
         children.push(
           new Paragraph({
             children: blockRunsToChildren(itemRuns, item, rtl),
-            ...(block.ordered
-              ? { numbering: { reference: "eisax-ordered", level: 0 } }
+            ...(numRef
+              ? { numbering: { reference: numRef, level: 0 } }
               : { bullet: { level: 0 } }),
             bidirectional: rtl,
             alignment,
@@ -189,11 +231,23 @@ export async function buildDocx(
       const rows = (block.rows ?? []).filter((r) => r.length > 0);
       if (rows.length > 0) {
         const colCount = Math.max(...rows.map((r) => r.length), 1);
+        const tblPct = Math.max(25, Math.min(100, block.widthPct ?? 100));
+        const tblTwips = Math.round((contentWidthTwips * tblPct) / 100);
+        const colPcts =
+          block.colWidths && block.colWidths.length === colCount
+            ? (() => {
+                const sum = block.colWidths.reduce((a, b) => a + b, 0) || 100;
+                return block.colWidths.map((w) => (w / sum) * 100);
+              })()
+            : Array.from({ length: colCount }, () => 100 / colCount);
+        const colTwips = colPcts.map((p) => Math.max(360, Math.round((tblTwips * p) / 100)));
+
         const tableRows = rows.map((row, rIdx) => {
           const cells = Array.from({ length: colCount }, (_, cIdx) => {
             const cellText = row[cIdx] ?? "";
             const cellRtl = rtl || /[\u0600-\u06FF]/.test(cellText);
             return new TableCell({
+              width: { size: colTwips[cIdx] ?? Math.round(tblTwips / colCount), type: WidthType.DXA },
               shading:
                 rIdx === 0
                   ? { type: ShadingType.CLEAR, color: "auto", fill: "EAF6F8" }
@@ -213,11 +267,18 @@ export async function buildDocx(
               ],
             });
           });
-          return new TableRow({ children: cells });
+          const rowHpx = block.rowHeights?.[rIdx];
+          return new TableRow({
+            children: cells,
+            ...(rowHpx && rowHpx > 12
+              ? { height: { value: Math.round(rowHpx * 15), rule: HeightRule.ATLEAST } }
+              : {}),
+          });
         });
         children.push(
           new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
+            width: { size: tblPct, type: WidthType.PERCENTAGE },
+            columnWidths: colTwips,
             visuallyRightToLeft: rtl,
             rows: tableRows,
           }),
@@ -240,14 +301,31 @@ export async function buildDocx(
       const asset = block.assetId && resolveAsset ? await resolveAsset(block.assetId) : null;
       if (asset && (asset.mimeType === "image/png" || asset.mimeType === "image/jpeg")) {
         const imgType = asset.mimeType === "image/png" ? "png" : "jpg";
+        const widthPx = block.widthPct
+          ? Math.max(80, Math.min(620, Math.round((560 * block.widthPct) / 100)))
+          : 420;
+        const heightPx = block.heightPx
+          ? Math.max(60, Math.min(720, Math.round(block.heightPx)))
+          : Math.round(widthPx * 0.62);
+        const imgAlign =
+          block.align === "left"
+            ? AlignmentType.LEFT
+            : block.align === "right"
+              ? AlignmentType.RIGHT
+              : AlignmentType.CENTER;
+        imageCrops.push(block.crop);
         children.push(
           new Paragraph({
-            alignment: AlignmentType.CENTER,
+            alignment: imgAlign,
             children: [
               new ImageRun({
                 data: asset.data,
                 type: imgType,
-                transformation: { width: 420, height: 260 },
+                transformation: {
+                  width: widthPx,
+                  height: heightPx,
+                  ...(block.rotation ? { rotation: block.rotation } : {}),
+                },
               }),
             ],
           }),
@@ -258,7 +336,12 @@ export async function buildDocx(
           new Paragraph({
             children: blockRunsToChildren(block.runs, block.text, rtl, "5A6A7A"),
             bidirectional: rtl,
-            alignment: AlignmentType.CENTER,
+            alignment:
+              block.align === "left"
+                ? AlignmentType.LEFT
+                : block.align === "right"
+                  ? AlignmentType.RIGHT
+                  : AlignmentType.CENTER,
           }),
         );
       }
@@ -350,25 +433,44 @@ export async function buildDocx(
     }
   }
 
-  const baseW = pageLayout?.size === "letter" ? 12240 : 11906;
-  const baseH = pageLayout?.size === "letter" ? 15840 : 16838;
-  const landscape = pageLayout?.orientation === "landscape";
-  const marginTwips =
-    pageLayout?.margins === "narrow" ? 720 : pageLayout?.margins === "wide" ? 2160 : 1440;
-
   const doc = new Document({
     numbering: {
       config: [
         {
           reference: "eisax-ordered",
-          levels: [
-            {
-              level: 0,
-              format: LevelFormat.DECIMAL,
-              text: "%1.",
-              alignment: AlignmentType.START,
-            },
-          ],
+          levels: [{ level: 0, format: LevelFormat.DECIMAL, text: "%1.", alignment: AlignmentType.START }],
+        },
+        {
+          reference: "eisax-arabic-indic",
+          levels: [{ level: 0, format: LevelFormat.HINDI_NUMBERS, text: "%1.", alignment: AlignmentType.START }],
+        },
+        {
+          reference: "eisax-arabic",
+          levels: [{ level: 0, format: LevelFormat.ARABIC_ALPHA, text: "%1.", alignment: AlignmentType.START }],
+        },
+        {
+          reference: "eisax-upper-alpha",
+          levels: [{ level: 0, format: LevelFormat.UPPER_LETTER, text: "%1.", alignment: AlignmentType.START }],
+        },
+        {
+          reference: "eisax-lower-alpha",
+          levels: [{ level: 0, format: LevelFormat.LOWER_LETTER, text: "%1.", alignment: AlignmentType.START }],
+        },
+        {
+          reference: "eisax-upper-roman",
+          levels: [{ level: 0, format: LevelFormat.UPPER_ROMAN, text: "%1.", alignment: AlignmentType.START }],
+        },
+        {
+          reference: "eisax-lower-roman",
+          levels: [{ level: 0, format: LevelFormat.LOWER_ROMAN, text: "%1.", alignment: AlignmentType.START }],
+        },
+        {
+          reference: "eisax-bullet-circle",
+          levels: [{ level: 0, format: LevelFormat.BULLET, text: "○", alignment: AlignmentType.START }],
+        },
+        {
+          reference: "eisax-bullet-square",
+          levels: [{ level: 0, format: LevelFormat.BULLET, text: "▪", alignment: AlignmentType.START }],
         },
       ],
     },
@@ -389,12 +491,50 @@ export async function buildDocx(
             },
           },
         },
+        ...(pageLayout?.showPageNumbers
+          ? {
+              footers: {
+                default: new Footer({
+                  children: [
+                    new Paragraph({
+                      alignment: AlignmentType.CENTER,
+                      children: [
+                        new TextRun({
+                          children: [PageNumber.CURRENT, " / ", PageNumber.TOTAL_PAGES],
+                        }),
+                      ],
+                    }),
+                  ],
+                }),
+              },
+            }
+          : {}),
         children,
       },
     ],
   });
 
-  const data = await Packer.toBuffer(doc);
+  let outBuffer = Buffer.from(await Packer.toBuffer(doc));
+  if (imageCrops.some((c) => hasCrop(c))) {
+    const zip = await JSZip.loadAsync(outBuffer);
+    const docXml = await zip.file("word/document.xml")?.async("string");
+    if (docXml) {
+      let idx = 0;
+      const patched = docXml.replace(
+        /(<pic:blipFill[^>]*>[\s\S]*?<a:blip\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/a:blip>))([\s\S]*?<\/pic:blipFill>)/g,
+        (full, head: string, tail: string) => {
+          const crop = imageCrops[idx++];
+          const srcRectXml = buildOoxmlSrcRect(crop);
+          if (!srcRectXml) return full;
+          const cleanedTail = tail.replace(/<a:srcRect\b[^>]*\/?>/g, "");
+          return `${head}${srcRectXml}${cleanedTail}`;
+        },
+      );
+      zip.file("word/document.xml", patched);
+      outBuffer = Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
+    }
+  }
+
   const safeTitle = title.replace(/[^\p{L}\p{N} _-]+/gu, "").trim() || "document";
-  return { fileName: `${safeTitle.slice(0, 60)}.docx`, data: Buffer.from(data) };
+  return { fileName: `${safeTitle.slice(0, 60)}.docx`, data: outBuffer };
 }

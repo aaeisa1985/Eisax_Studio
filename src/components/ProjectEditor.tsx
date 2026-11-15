@@ -33,6 +33,7 @@ export type EditorProject = {
     slides?: SlideItem[];
     blocks?: DocumentBlock[];
     pageLayout?: PageLayout;
+    showSlideNumbers?: boolean;
     fidelityWarnings?: string[];
   };
 };
@@ -85,6 +86,9 @@ export function ProjectEditor({
   const [blocks, setBlocks] = useState<DocumentBlock[]>(() => project.content.blocks ?? []);
   const [pageLayout, setPageLayout] = useState<PageLayout>(
     () => project.content.pageLayout ?? DEFAULT_PAGE_LAYOUT,
+  );
+  const [showSlideNumbers, setShowSlideNumbers] = useState<boolean>(() =>
+    Boolean(project.content.showSlideNumbers),
   );
   const [fidelityWarnings] = useState<string[]>(() => project.content.fidelityWarnings ?? []);
 
@@ -229,6 +233,7 @@ export function ProjectEditor({
           schemaVersion: 1,
           theme,
           slides,
+          ...(showSlideNumbers ? { showSlideNumbers: true } : {}),
           ...(fidelityWarnings.length > 0 ? { fidelityWarnings } : {}),
         }
       : {
@@ -261,7 +266,7 @@ export function ProjectEditor({
     }, 800);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [theme, slides, blocks, pageLayout]);
+  }, [theme, slides, blocks, pageLayout, showSlideNumbers]);
 
   async function saveMeta(patch: { title?: string; language?: string }) {
     if (patch.language) setLanguage(patch.language);
@@ -400,10 +405,12 @@ export function ProjectEditor({
           language={language}
           theme={theme}
           slides={slides}
+          showSlideNumbers={showSlideNumbers}
           fidelityWarnings={fidelityWarnings}
           usage={usage}
           onThemeChange={(nextTheme) => commitChange(nextTheme, slides, blocks, pageLayout)}
           onSlidesChange={(nextSlides) => commitChange(theme, nextSlides, blocks, pageLayout)}
+          onShowSlideNumbersChange={setShowSlideNumbers}
           onAiGenerated={handleAiGenerated}
           onUsageChange={setUsage}
           onUploadImage={uploadImageAsset}

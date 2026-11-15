@@ -84,12 +84,21 @@ export const inlineRunSchema = z.object({
   underline: z.boolean().optional(),
   strike: z.boolean().optional(),
   color: z.string().max(20).optional(),
-  fontSize: z.number().min(8).max(72).optional(),
+  fontSize: z.number().min(8).max(96).optional(),
+  fontFamily: z.string().max(80).optional(),
   href: safeUrlSchema.optional(),
 });
 export type InlineRun = z.infer<typeof inlineRunSchema>;
 
-export const slideElementKindSchema = z.enum(["text", "shape", "image", "chart"]);
+export const imageCropSchema = z.object({
+  top: z.number().min(0).max(45).default(0),
+  right: z.number().min(0).max(45).default(0),
+  bottom: z.number().min(0).max(45).default(0),
+  left: z.number().min(0).max(45).default(0),
+});
+export type ImageCrop = z.infer<typeof imageCropSchema>;
+
+export const slideElementKindSchema = z.enum(["text", "shape", "image", "chart", "table"]);
 export type SlideElementKind = z.infer<typeof slideElementKindSchema>;
 
 export const slideShapeTypeSchema = z.enum([
@@ -114,6 +123,7 @@ export const slideElementSchema = z.object({
   text: z.string().max(20000).optional(),
   runs: z.array(inlineRunSchema).max(200).optional(),
   fontSize: z.number().min(8).max(120).optional(),
+  fontFamily: z.string().max(80).optional(),
   bold: z.boolean().optional(),
   italic: z.boolean().optional(),
   underline: z.boolean().optional(),
@@ -126,7 +136,12 @@ export const slideElementSchema = z.object({
   borderColor: z.string().max(20).optional(),
   borderWidth: z.number().min(0).max(20).optional(),
   assetId: z.string().uuid().optional(),
+  crop: imageCropSchema.optional(),
+  objectFit: z.enum(["contain", "cover"]).optional(),
   chart: chartDataSchema.optional(),
+  rows: z.array(z.array(z.string().max(1000)).max(12)).max(30).optional(),
+  colWidths: z.array(z.number().min(3).max(95)).max(12).optional(),
+  rowHeights: z.array(z.number().min(18).max(400)).max(30).optional(),
 });
 export type SlideElement = z.infer<typeof slideElementSchema>;
 
@@ -152,6 +167,7 @@ export const presentationContentSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   theme: z.string().default("default"),
   slides: z.array(slideItemSchema).max(60).default([]),
+  showSlideNumbers: z.boolean().optional(),
   fidelityWarnings: z.array(z.string().max(500)).max(50).optional(),
 });
 
@@ -173,6 +189,7 @@ export const pageLayoutSchema = z.object({
   size: z.enum(["a4", "letter"]).default("a4"),
   orientation: z.enum(["portrait", "landscape"]).default("portrait"),
   margins: z.enum(["normal", "narrow", "wide"]).default("normal"),
+  showPageNumbers: z.boolean().optional(),
 });
 export type PageLayout = z.infer<typeof pageLayoutSchema>;
 
@@ -184,9 +201,16 @@ export const documentBlockSchema = z.object({
   runs: z.array(inlineRunSchema).max(500).optional(),
   align: textAlignSchema.optional(),
   ordered: z.boolean().optional(),
+  listStyle: z.string().max(30).optional(),
   items: z.array(z.string().max(2000)).max(100).optional(),
   listRuns: z.array(z.array(inlineRunSchema).max(200)).max(100).optional(),
   rows: z.array(z.array(z.string().max(1000)).max(12)).max(50).optional(),
+  colWidths: z.array(z.number().min(3).max(95)).max(12).optional(),
+  rowHeights: z.array(z.number().min(20).max(500)).max(50).optional(),
+  widthPct: z.number().min(15).max(100).optional(),
+  heightPx: z.number().min(60).max(900).optional(),
+  crop: imageCropSchema.optional(),
+  rotation: z.number().min(-360).max(360).optional(),
   url: safeUrlSchema.optional(),
   assetId: z.string().uuid().optional(),
   chart: chartDataSchema.optional(),

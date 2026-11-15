@@ -169,3 +169,29 @@ Re-ran the full gate on a clean working tree (`git status` → 0 changes) after 
   - Light theme toggled and persisted across reload (`data-ui-theme="light"`, body background `rgb(244, 247, 251)`).
   - `/manifest.webmanifest` (`200`), `/icons/icon-192.png` (`200`), and `/sw.js` (`200`, Service Worker active scope `http://localhost:3100/`).
   - Blank Document & Blank Presentation tested in Light & Fullscreen mode with Arabic/mixed-direction auto-RTL typing (`dir="rtl"`, punctuation aligned cleanly, `Saved` persistence).
+
+---
+
+## Milestone 6 — Light Mode Toolbar Fix, Full Media/Chart/Table Controls, Fonts, Numbering Styles & Arabic Numerals (2026-11-15)
+
+**Upgrades delivered:**
+- **Light Mode Ribbon & Contrast Fixes (`src/components/WordProcessor.tsx`, `src/components/SlideCanvasEditor.tsx`, `src/components/AiAssist.tsx`, `src/app/globals.css`):**
+  - Replaced hardcoded dark sticky toolbar background in `WordProcessor.tsx` (`rgba(17, 25, 36, 0.94)`) with theme-aware `var(--nav-bg)`, updated warning/error surfaces to `var(--gold)` / `var(--danger)` / `var(--danger-border)`, and themed `<select option>` menus cleanly for Light Mode.
+- **Image, Chart & Table Interactive Controls (`src/components/MediaControls.tsx`, `src/lib/utils/mediaStyle.ts`, `src/components/WordProcessor.tsx`, `src/components/SlideCanvasEditor.tsx`, `src/lib/document/tiptapSync.ts`, `src/lib/validation/projects.ts`):**
+  - **Images (Word + Slides):** Added 8-handle resizing (`nw, n, ne, e, se, s, sw, w` on Slide Canvas & Word `ImageBlockView`), interactive edge crop bars + numeric `<CropControlsBar>` (`top/right/bottom/left` % via `croppedImageCss`), alignment, rotation (`↻ 90°` Word / `↻ 15°` Slides), `Contain`/`Cover` object-fit toggle, and sibling block reordering (`↑`/`↓`).
+  - **Charts & Slide Tables:** Added drag-resizable chart frames (`e/s/se` in Word, 8 handles on Slides), alignment, and shared inline `<ChartDataEditor>` (`bar`/`line`/`pie`, title, unit, categories, numeric values, add/remove points). Added native `kind: "table"` slide element (`SlideTableElementView`) with inline editable cells and draggable column/row divider lines.
+  - **Word Table Line-Drag Resizing:** Configured TipTap `Table.configure({ resizable: true })` with visible `.column-resize-handle` styling in `globals.css`, plus pointer-based horizontal **row-border drag resizing** (`rowHeights` in px + `.row-resize-cursor` + blue guide line), table width `%`, and `colWidths` / `rowHeights` persistence in `tiptapSync.ts`.
+- **Expanded Fonts, Numbering Styles & Arabic Numerals:**
+  - Added 15 curated bilingual Arabic + Latin fonts (`Cairo`, `Tajawal`, `Amiri`, `Noto Sans Arabic`, `Tahoma`, `Segoe UI`, `Arial`, `Calibri`, `Georgia`, `Times New Roman`, `Cambria`, `Verdana`, `Trebuchet MS`, `Courier New`) and full size range (`8pt–72pt` Word, `8–72px` Slides).
+  - Added 10 list numbering/bullet styles (`decimal`, `arabic-indic`, `arabic`, `upper-alpha`, `lower-alpha`, `upper-roman`, `lower-roman`, `disc`, `circle`, `square`), smart `١٢٣↔123` digit script converter (`toggleDigitsScript`), Word `showPageNumbers` footer toggle, and Slide `showSlideNumbers` badge toggle (`src/components/ProjectEditor.tsx`).
+- **OOXML Export/Import & Print Fidelity (`src/lib/export/docx.ts`, `src/lib/import/docx.ts`, `src/lib/export/pptx.ts`, `src/app/projects/[id]/print/page.tsx`):**
+  - DOCX export emits `font` (`rFonts`), named numbering definitions (`hindiNumbers`, `arabicAlpha`, roman/letter/bullet symbols), table `columnWidths` + `w:trHeight`, image dimensions/rotation/`<a:srcRect>` crop XML, and `PageNumber` footers; `importDocx` parses `w:tblGrid`, `w:trHeight`, `a:srcRect`, `xfrm@rot`, `rFonts`, and numbering formats cleanly.
+  - PPTX export emits `fontFace`, `rotate`, native `s.addTable(...)` with `colW`/`rowH`, `<a:srcRect>` crop XML, and `slideNumber` when `showSlideNumbers` is enabled. Print view renders all new element/block styles.
+
+**Verified (post-final-edit):**
+- `npm run typecheck` (`tsc --noEmit`) → exit 0.
+- `npm test` (`vitest run`) → **5 test files, 52/52 tests passed** (`phase1` 14, `phase2-export` 6, `phase3-ai` 14, `phase5-hardening` 7, `phase6-office-roundtrip` 11 — including DOCX `hindiNumbers` + `w:tblGrid` + `w:trHeight` + `<a:srcRect>` + `Cairo` round-trip, PPTX `<a:tbl>` + `Cairo` + `<a:srcRect>` + `type="sldNum"` export, and Arabic-Indic `١٢٣↔123` + `croppedImageCss` math).
+- `npm run build` (`next build`) → exit 0 (16 routes built cleanly).
+- Live Chromium check on `http://localhost:3100` in Light Mode (`data-ui-theme="light"`):
+  - Word Processor sticky ribbon verified bright & readable in Light mode, 15 fonts + `8pt–72pt` + `arabic-indic` numbering verified, `١٢٣↔123` converted `"2026"` -> `"٢٠٢٦"`, 3×3 table column/row resize persisted across reload, Chart block resized + updated live via `ChartDataEditor` (`"EISAX Performance 2026"` Line chart) and persisted across reload.
+  - Slide Canvas verified in Light mode with `+ Table` & `# Slide #` controls, text box 8-handle resize & drag, 📊 Chart element persistence, and HTTP 200 `.pptx` download (`69,872` bytes) with zero console/server errors.

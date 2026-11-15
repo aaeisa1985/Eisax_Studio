@@ -58,7 +58,7 @@ export function ErrorNote({ error, locale }: { error: string | undefined; locale
     <p
       role="alert"
       className="mt-2 rounded-lg border p-2.5 text-xs"
-      style={{ borderColor: "#4a2430", background: "rgba(90,22,38,0.22)", color: "#ff9b9b" }}
+      style={{ borderColor: "var(--danger-border)", background: "rgba(90,22,38,0.14)", color: "var(--danger)" }}
     >
       {errorLabel(error, locale)}
       {error === "quota_exceeded" && (

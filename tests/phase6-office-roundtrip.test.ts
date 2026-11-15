@@ -16,6 +16,14 @@ import {
   resolveParagraphDir,
   splitBidiRunChunks,
 } from "@/lib/utils/bidi";
+import {
+  buildOoxmlSrcRect,
+  croppedImageCss,
+  formatDisplayNumber,
+  toArabicIndicDigits,
+  toWesternDigits,
+  toggleDigitsScript,
+} from "@/lib/utils/mediaStyle";
 import type { AssetResolver } from "@/lib/storage/assets";
 import type { DocumentBlock, DocumentContent, PresentationContent } from "@/lib/validation/projects";
 
@@ -614,5 +622,236 @@ describe("Phase 6 Office Round-Trip Compatibility", () => {
     expect(fs.existsSync(path.join(root, "public", "icons", "icon-512.png"))).toBe(true);
     expect(fs.existsSync(path.join(root, "public", "icons", "icon-maskable-512.png"))).toBe(true);
     expect(fs.existsSync(path.join(root, "public", "sw.js"))).toBe(true);
+  });
+
+  it("round-trips DOCX table colWidths/rowHeights, image crop/rotation, Arabic-Indic numbering, and fontFamily", async () => {
+    const assets = makeMemoryAssets();
+    const imgId = assets.seed("image/png", SAMPLE_PNG);
+
+    const blocks: DocumentBlock[] = [
+      {
+        id: "p-font",
+        kind: "paragraph",
+        text: "تقرير Cairo السنوي",
+        dir: "rtl",
+        runs: [
+          { text: "تقرير ", fontFamily: "Cairo", fontSize: 16, bold: true },
+          { text: "Cairo", fontFamily: "Calibri", fontSize: 16 },
+          { text: " السنوي", fontFamily: "Amiri", fontSize: 16 },
+        ],
+      },
+      {
+        id: "lst-ar",
+        kind: "list",
+        ordered: true,
+        listStyle: "arabic-indic",
+        text: "",
+        items: ["البند الأول", "البند الثاني"],
+        dir: "rtl",
+      },
+      {
+        id: "tbl-sized",
+        kind: "table",
+        text: "",
+        widthPct: 80,
+        colWidths: [65, 35],
+        rowHeights: [44, 68],
+        rows: [
+          ["العنصر", "النسبة"],
+          ["التنفيذ", "92%"],
+        ],
+        dir: "rtl",
+      },
+      {
+        id: "img-crop",
+        kind: "image",
+        assetId: imgId,
+        text: "Cropped banner",
+        widthPct: 70,
+        heightPx: 220,
+        align: "right",
+        rotation: 90,
+        crop: { top: 10, right: 15, bottom: 20, left: 5 },
+        dir: "ltr",
+      },
+      {
+        id: "ch-resized",
+        kind: "chart",
+        text: "",
+        widthPct: 85,
+        heightPx: 300,
+        align: "center",
+        chart: {
+          kind: "bar",
+          title: "الأداء",
+          categories: ["Q1", "Q2"],
+          values: [40, 85],
+        },
+        dir: "rtl",
+      },
+    ];
+
+    // TipTap round-trip preserves crop, rotation, fontFamily, listStyle, colWidths, rowHeights, and chart size
+    const docJson = blocksToTiptapDoc(blocks);
+    const syncedBack = tiptapDocToBlocks(docJson);
+
+    const syncedPara = syncedBack.find((b) => b.kind === "paragraph");
+    expect(syncedPara?.runs?.some((r) => r.fontFamily === "Cairo")).toBe(true);
+    expect(syncedPara?.runs?.some((r) => r.fontFamily === "Amiri")).toBe(true);
+
+    const syncedList = syncedBack.find((b) => b.kind === "list");
+    expect(syncedList?.listStyle).toBe("arabic-indic");
+
+    const syncedTable = syncedBack.find((b) => b.kind === "table");
+    expect(syncedTable?.colWidths).toEqual([65, 35]);
+    expect(syncedTable?.rowHeights).toEqual([44, 68]);
+    expect(syncedTable?.widthPct).toBe(80);
+
+    const syncedImg = syncedBack.find((b) => b.kind === "image");
+    expect(syncedImg?.crop).toEqual({ top: 10, right: 15, bottom: 20, left: 5 });
+    expect(syncedImg?.rotation).toBe(90);
+    expect(syncedImg?.widthPct).toBe(70);
+    expect(syncedImg?.align).toBe("right");
+
+    const syncedChart = syncedBack.find((b) => b.kind === "chart");
+    expect(syncedChart?.widthPct).toBe(85);
+    expect(syncedChart?.heightPx).toBe(300);
+
+    // DOCX export emits real OOXML structures for all new features
+    const docxOut = await buildDocx(
+      "تقرير متقدم",
+      {
+        schemaVersion: 1,
+        blocks: syncedBack,
+        pageLayout: { size: "a4", orientation: "portrait", margins: "normal", showPageNumbers: true },
+      },
+      assets.resolveAsset,
+    );
+    expect("data" in docxOut).toBe(true);
+    const buf = (docxOut as { data: Buffer }).data;
+    const zip = await JSZip.loadAsync(buf);
+    const docXml = await zip.file("word/document.xml")!.async("string");
+    const numXml = await zip.file("word/numbering.xml")!.async("string");
+
+    expect(numXml).toContain("hindiNumbers");
+    expect(docXml).toContain("<a:srcRect");
+    expect(docXml).toContain('l="5000"');
+    expect(docXml).toContain('t="10000"');
+    expect(docXml).toContain("<w:trHeight");
+    expect(docXml).toContain("Cairo");
+
+    // Re-import DOCX and verify table grid, row height, crop, rotation, listStyle, and fontFamily survive
+    const imported = await importDocx(buf, assets.saveAsset);
+    const impList = imported.content.blocks.find((b) => b.kind === "list");
+    expect(impList?.listStyle).toBe("arabic-indic");
+    const impTable = imported.content.blocks.find((b) => b.kind === "table");
+    expect(impTable?.colWidths?.length).toBe(2);
+    expect(impTable?.colWidths?.[0]).toBeGreaterThan(impTable?.colWidths?.[1] ?? 100);
+    expect(impTable?.rowHeights?.length).toBe(2);
+    const impImg = imported.content.blocks.find((b) => b.kind === "image");
+    expect(impImg?.crop?.top).toBe(10);
+    expect(impImg?.crop?.left).toBe(5);
+    expect(impImg?.rotation).toBe(90);
+  });
+
+  it("exports PPTX slide table elements, image crop srcRect, fontFace, rotation, and slide numbers", async () => {
+    const assets = makeMemoryAssets();
+    const imgId = assets.seed("image/png", SAMPLE_PNG);
+
+    const out = await buildPptx(
+      "Deck Controls",
+      {
+        schemaVersion: 1,
+        theme: "default",
+        showSlideNumbers: true,
+        slides: [
+          {
+            id: "s-1",
+            title: "شريحة الجداول والقص",
+            subtitle: "",
+            bullets: [],
+            layout: "title-body",
+            accentShape: "none",
+            notes: "",
+            dir: "rtl",
+            elements: [
+              {
+                id: "el-txt",
+                kind: "text",
+                x: 8,
+                y: 6,
+                w: 84,
+                h: 14,
+                zIndex: 1,
+                text: "عنوان Cairo",
+                fontFamily: "Cairo",
+                fontSize: 22,
+                bold: true,
+                rotation: 15,
+              },
+              {
+                id: "el-tbl",
+                kind: "table",
+                x: 8,
+                y: 25,
+                w: 44,
+                h: 45,
+                zIndex: 2,
+                rows: [
+                  ["البند", "القيمة"],
+                  ["المبيعات", "١٢٠"],
+                ],
+                colWidths: [60, 40],
+                rowHeights: [36, 48],
+                fontFamily: "Tajawal",
+              },
+              {
+                id: "el-img",
+                kind: "image",
+                x: 56,
+                y: 25,
+                w: 36,
+                h: 48,
+                zIndex: 3,
+                assetId: imgId,
+                crop: { top: 12, right: 8, bottom: 12, left: 8 },
+                objectFit: "cover",
+                rotation: 30,
+              },
+            ],
+          },
+        ],
+      },
+      assets.resolveAsset,
+    );
+
+    expect("data" in out).toBe(true);
+    const zip = await JSZip.loadAsync((out as { data: Buffer }).data);
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slideXml).toContain("<a:tbl");
+    expect(slideXml).toContain("المبيعات");
+    expect(slideXml).toContain('typeface="Cairo"');
+    expect(slideXml).toContain("<a:srcRect");
+    expect(slideXml).toContain('l="8000"');
+    expect(slideXml).toContain('t="12000"');
+    expect(slideXml).toContain('type="sldNum"');
+  });
+
+  it("handles Arabic-Indic numeral conversion, script toggling, and crop CSS math", () => {
+    expect(toArabicIndicDigits("Page 2026: 45%")).toBe("Page ٢٠٢٦: ٤٥%");
+    expect(toWesternDigits("صفحة ٢٠٢٦: ٤٥%")).toBe("صفحة 2026: 45%");
+    expect(toggleDigitsScript("Q1: 2026")).toBe("Q١: ٢٠٢٦");
+    expect(toggleDigitsScript("سنة ٢٠٢٦ - ١٤")).toBe("سنة 2026 - 14");
+    expect(formatDisplayNumber(12, true)).toBe("١٢");
+    expect(formatDisplayNumber(12, false)).toBe("12");
+
+    expect(buildOoxmlSrcRect({ top: 10, right: 20, bottom: 10, left: 0 })).toBe(
+      '<a:srcRect l="0" t="10000" r="20000" b="10000"/>',
+    );
+    const css = croppedImageCss({ top: 10, right: 10, bottom: 10, left: 10 }, "cover");
+    expect(css.width).toBe("125.000%");
+    expect(css.height).toBe("125.000%");
+    expect(css.left).toBe("-12.5%");
+    expect(css.top).toBe("-12.5%");
   });
 });

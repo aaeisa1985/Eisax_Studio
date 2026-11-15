@@ -47,29 +47,48 @@ function mapAlignment(raw: string | undefined, rtl = false): TextAlign | undefin
   }
 }
 
-function parseNumberingMap(xml: string | null): Map<string, boolean> {
-  // numId -> ordered (true) vs bullet (false)
-  const out = new Map<string, boolean>();
+function parseNumberingMap(
+  xml: string | null,
+): Map<string, { ordered: boolean; listStyle?: string }> {
+  // numId -> { ordered, listStyle }
+  const out = new Map<string, { ordered: boolean; listStyle?: string }>();
   if (!xml) return out;
   const doc = parseXml(xml);
   if (!doc) return out;
 
-  const abstractOrdered = new Map<string, boolean>();
+  const mapNumFmt = (rawFmt: string, lvlText: string): { ordered: boolean; listStyle?: string } => {
+    const f = rawFmt.toLowerCase();
+    if (f === "bullet") {
+      if (lvlText.includes("▪") || lvlText.includes("■")) return { ordered: false, listStyle: "square" };
+      if (lvlText.includes("○") || lvlText.includes("o")) return { ordered: false, listStyle: "circle" };
+      return { ordered: false, listStyle: "disc" };
+    }
+    if (f === "hindinumbers" || f === "hindi_numbers") return { ordered: true, listStyle: "arabic-indic" };
+    if (f === "arabicalpha" || f === "arabicabjad") return { ordered: true, listStyle: "arabic" };
+    if (f === "upperletter") return { ordered: true, listStyle: "upper-alpha" };
+    if (f === "lowerletter") return { ordered: true, listStyle: "lower-alpha" };
+    if (f === "upperroman") return { ordered: true, listStyle: "upper-roman" };
+    if (f === "lowerroman") return { ordered: true, listStyle: "lower-roman" };
+    return { ordered: true, listStyle: "decimal" };
+  };
+
+  const abstractMap = new Map<string, { ordered: boolean; listStyle?: string }>();
   for (const abs of childrenOf(doc, "abstractNum")) {
     const absId = attr(abs, "abstractNumId");
     if (!absId) continue;
     const lvl0 = child(abs, "lvl");
     const numFmt = child(lvl0, "numFmt");
-    const val = attr(numFmt, "val")?.toLowerCase() ?? "bullet";
-    abstractOrdered.set(absId, val !== "bullet");
+    const lvlText = attr(child(lvl0, "lvlText"), "val") ?? "";
+    const val = attr(numFmt, "val") ?? "bullet";
+    abstractMap.set(absId, mapNumFmt(val, lvlText));
   }
 
   for (const num of childrenOf(doc, "num")) {
     const numId = attr(num, "numId");
     const absRef = child(num, "abstractNumId");
     const absId = attr(absRef, "val");
-    if (numId && absId && abstractOrdered.has(absId)) {
-      out.set(numId, abstractOrdered.get(absId)!);
+    if (numId && absId && abstractMap.has(absId)) {
+      out.set(numId, abstractMap.get(absId)!);
     }
   }
   return out;
@@ -98,6 +117,8 @@ function parseRunFormatting(rPr: XmlNode | undefined): Omit<InlineRun, "text"> {
   const sNode = child(rPr, "strike") ?? child(rPr, "dstrike");
   const colorNode = child(rPr, "color");
   const szNode = child(rPr, "sz");
+  const rFonts = child(rPr, "rFonts");
+  const fontFamily = attr(rFonts, "ascii") || attr(rFonts, "cs") || attr(rFonts, "hAnsi");
 
   const boolOn = (n: XmlNode | undefined) => {
     if (!n) return false;
@@ -121,6 +142,7 @@ function parseRunFormatting(rPr: XmlNode | undefined): Omit<InlineRun, "text"> {
     ...(boolOn(sNode) ? { strike: true } : {}),
     ...(normalizeHex(attr(colorNode, "val")) ? { color: normalizeHex(attr(colorNode, "val")) } : {}),
     ...(fontSize ? { fontSize } : {}),
+    ...(fontFamily ? { fontFamily: fontFamily.slice(0, 80) } : {}),
   };
 }
 
@@ -244,12 +266,34 @@ export async function importDocx(
               if (assetId) {
                 const docPr = firstDescendant(ch, "docPr");
                 const alt = attr(docPr, "descr") || attr(docPr, "name") || "";
+                const srcRect = firstDescendant(ch, "srcRect");
+                const parseCropPct = (raw: string | undefined) => {
+                  const v = Number.parseInt(raw ?? "", 10);
+                  if (!Number.isFinite(v) || v <= 0) return 0;
+                  return Math.round(Math.min(85, Math.max(0, v / 1000)) * 10) / 10;
+                };
+                const cropObj = srcRect
+                  ? {
+                      top: parseCropPct(attr(srcRect, "t")),
+                      right: parseCropPct(attr(srcRect, "r")),
+                      bottom: parseCropPct(attr(srcRect, "b")),
+                      left: parseCropPct(attr(srcRect, "l")),
+                    }
+                  : undefined;
+                const hasAnyCrop = Boolean(
+                  cropObj && (cropObj.top > 0 || cropObj.right > 0 || cropObj.bottom > 0 || cropObj.left > 0),
+                );
+                const xfrm = firstDescendant(ch, "xfrm");
+                const rotRaw = Number.parseInt(attr(xfrm, "rot") ?? "", 10);
+                const rotDeg = Number.isFinite(rotRaw) ? Math.round((rotRaw / 60000) % 360) : 0;
                 imageBlocks.push({
                   id: uid("img", ++seq),
                   kind: "image",
                   assetId,
                   text: alt.slice(0, 300),
                   dir: /[\u0600-\u06FF]/.test(alt) ? "rtl" : "ltr",
+                  ...(hasAnyCrop && cropObj ? { crop: cropObj } : {}),
+                  ...(rotDeg > 0 ? { rotation: rotDeg } : {}),
                 });
               } else {
                 warnings.add(`Image "${rel.target}" uses an unsupported vector/legacy format (only PNG/JPEG/WebP are imported).`);
@@ -293,7 +337,13 @@ export async function importDocx(
     return { runs, text, imageBlocks };
   };
 
-  let pendingList: { ordered: boolean; items: string[]; listRuns: InlineRun[][]; dir: "ltr" | "rtl" } | null = null;
+  let pendingList: {
+    ordered: boolean;
+    listStyle?: string;
+    items: string[];
+    listRuns: InlineRun[][];
+    dir: "ltr" | "rtl";
+  } | null = null;
   const flushList = () => {
     if (!pendingList || pendingList.items.length === 0) {
       pendingList = null;
@@ -303,6 +353,7 @@ export async function importDocx(
       id: uid("lst", ++seq),
       kind: "list",
       ordered: pendingList.ordered,
+      ...(pendingList.listStyle ? { listStyle: pendingList.listStyle as DocumentBlock["listStyle"] } : {}),
       text: "",
       items: pendingList.items,
       listRuns: pendingList.listRuns,
@@ -332,12 +383,21 @@ export async function importDocx(
 
       if (isList && numId) {
         flushListIfMismatch: {
-          const ordered = numberingMap.get(numId) ?? false;
-          if (pendingList && pendingList.ordered !== ordered) {
+          const info = numberingMap.get(numId) ?? { ordered: false };
+          if (
+            pendingList &&
+            (pendingList.ordered !== info.ordered || pendingList.listStyle !== info.listStyle)
+          ) {
             flushList();
           }
           if (!pendingList) {
-            pendingList = { ordered, items: [], listRuns: [], dir };
+            pendingList = {
+              ordered: info.ordered,
+              listStyle: info.listStyle,
+              items: [],
+              listRuns: [],
+              dir,
+            };
           }
           if (text.trim().length > 0 || runs.length > 0) {
             pendingList.items.push(text.slice(0, 2000));
@@ -390,10 +450,33 @@ export async function importDocx(
       flushList();
       const tblPr = child(node, "tblPr");
       const bidiVisual = Boolean(child(tblPr, "bidiVisual"));
+      const tblW = child(tblPr, "tblW");
+      const tblWType = attr(tblW, "type");
+      const tblWVal = Number.parseInt(attr(tblW, "w") ?? "", 10);
+      const widthPct =
+        tblWType === "pct" && Number.isFinite(tblWVal) && tblWVal >= 1250 && tblWVal <= 5000
+          ? Math.round(tblWVal / 50)
+          : undefined;
+
+      const tblGrid = child(node, "tblGrid");
+      const rawGridCols = childrenOf(tblGrid, "gridCol")
+        .map((c) => Number.parseInt(attr(c, "w") ?? "", 10))
+        .filter((n) => Number.isFinite(n) && n > 0);
+
       const rows: string[][] = [];
+      const rowHeights: Array<number | undefined> = [];
       let rtlCells = bidiVisual;
 
       for (const tr of childrenOf(node, "tr").slice(0, 50)) {
+        const trPr = child(tr, "trPr");
+        const trHeight = child(trPr, "trHeight");
+        const hTwips = Number.parseInt(attr(trHeight, "val") ?? "", 10);
+        rowHeights.push(
+          Number.isFinite(hTwips) && hTwips >= 180
+            ? Math.max(24, Math.min(480, Math.round(hTwips / 15)))
+            : undefined,
+        );
+
         const cells: string[] = [];
         for (const tc of childrenOf(tr, "tc").slice(0, 12)) {
           const paras = childrenOf(tc, "p").map((p) => {
@@ -407,11 +490,25 @@ export async function importDocx(
         if (cells.length > 0) rows.push(cells);
       }
       if (rows.length > 0) {
+        const colCount = Math.max(...rows.map((r) => r.length), 1);
+        let colWidths: number[] | undefined;
+        if (rawGridCols.length === colCount) {
+          const sum = rawGridCols.reduce((a, b) => a + b, 0);
+          if (sum > 0) {
+            colWidths = rawGridCols.map((w) => Math.max(5, Math.round((w / sum) * 1000) / 10));
+          }
+        }
+        const cleanedRowHeights = rowHeights.some((h) => h !== undefined)
+          ? rowHeights.map((h) => h ?? 32)
+          : undefined;
         blocks.push({
           id: uid("tbl", ++seq),
           kind: "table",
           text: "",
           rows,
+          ...(colWidths ? { colWidths } : {}),
+          ...(cleanedRowHeights ? { rowHeights: cleanedRowHeights } : {}),
+          ...(widthPct && widthPct < 100 ? { widthPct } : {}),
           dir: rtlCells ? "rtl" : "ltr",
         });
       }

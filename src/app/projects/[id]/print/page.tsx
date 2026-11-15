@@ -9,6 +9,7 @@ import { resolveParagraphDir } from "@/lib/utils/bidi";
 import { LOCALE_COOKIE, getLocale } from "@/lib/i18n";
 import { PrintButton } from "@/components/PrintButton";
 import { SlideChart } from "@/components/SlideChart";
+import { croppedImageCss, formatDisplayNumber } from "@/lib/utils/mediaStyle";
 import type {
   DocumentBlock,
   InlineRun,
@@ -33,6 +34,7 @@ function InlineRunsText({ text, runs }: { text: string; runs?: InlineRun[] }) {
                 .join(" ") || undefined,
             color: r.color ? `#${r.color.replace(/^#/, "")}` : undefined,
             fontSize: r.fontSize ? `${r.fontSize}pt` : undefined,
+            fontFamily: r.fontFamily || undefined,
           };
           if (r.href && /^https?:\/\//i.test(r.href)) {
             return (
@@ -80,17 +82,64 @@ function PrintSlideElement({
     width: `${el.w}%`,
     height: `${el.h}%`,
     zIndex: el.zIndex ?? 1,
+    transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
   };
 
   if (el.kind === "image" && el.assetId) {
     return (
-      <div style={boxStyle}>
+      <div dir="ltr" style={{ ...boxStyle, overflow: "hidden", borderRadius: 4 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={`/api/assets/${el.assetId}`}
           alt={el.text || "Slide image"}
-          style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 4 }}
+          style={croppedImageCss(el.crop, el.objectFit ?? "contain")}
         />
+      </div>
+    );
+  }
+
+  if (el.kind === "table") {
+    const rows = el.rows && el.rows.length > 0 ? el.rows : [[" ", " "]];
+    const colCount = Math.max(...rows.map((r) => r.length), 1);
+    return (
+      <div style={{ ...boxStyle, overflow: "hidden" }} dir={el.dir ?? "auto"}>
+        <table style={{ width: "100%", height: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+          <colgroup>
+            {Array.from({ length: colCount }, (_, cIdx) => (
+              <col
+                key={cIdx}
+                style={{
+                  width:
+                    el.colWidths && el.colWidths.length === colCount
+                      ? `${el.colWidths[cIdx]}%`
+                      : `${100 / colCount}%`,
+                }}
+              />
+            ))}
+          </colgroup>
+          <tbody>
+            {rows.map((row, rIdx) => (
+              <tr key={rIdx} style={{ height: el.rowHeights?.[rIdx] ? `${el.rowHeights[rIdx]}px` : undefined }}>
+                {Array.from({ length: colCount }, (_, cIdx) => (
+                  <td
+                    key={cIdx}
+                    style={{
+                      border: `1px solid #${themeHexes.borderHex}`,
+                      backgroundColor: rIdx === 0 ? `#${themeHexes.cardBgHex}` : undefined,
+                      color: `#${rIdx === 0 ? themeHexes.titleHex : themeHexes.bodyHex}`,
+                      fontWeight: rIdx === 0 ? 700 : 400,
+                      fontSize: Math.max(8, Math.round((el.fontSize ?? 12) * 0.7)),
+                      fontFamily: el.fontFamily || undefined,
+                      padding: "2px 4px",
+                    }}
+                  >
+                    {row[cIdx] ?? ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   }
@@ -172,6 +221,7 @@ function PrintSlideElement({
               unicodeBidi: el.dir ? "isolate" : "plaintext",
               color: textColor,
               fontSize: `${Math.max(9, (el.fontSize ?? 14) * 0.65)}px`,
+              fontFamily: el.fontFamily || undefined,
               fontWeight: el.bold ? 700 : 400,
               fontStyle: el.italic ? "italic" : "normal",
               whiteSpace: "pre-wrap",
@@ -194,6 +244,7 @@ function PrintSlideElement({
         border: border ? `${el.borderWidth ?? 1}px solid ${border}` : undefined,
         color: textColor,
         fontSize: `${Math.max(9, (el.fontSize ?? 16) * 0.65)}px`,
+        fontFamily: el.fontFamily || undefined,
         fontWeight: el.bold ? 700 : 400,
         fontStyle: el.italic ? "italic" : "normal",
         textAlign,
@@ -226,6 +277,7 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
     slides?: SlideItem[];
     blocks?: DocumentBlock[];
     pageLayout?: PageLayout;
+    showSlideNumbers?: boolean;
   };
   const theme = resolveSlideTheme(content.theme);
   const layout = content.pageLayout ?? { size: "a4", orientation: "portrait", margins: "normal" };
@@ -278,6 +330,19 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                     {sorted.map((el) => (
                       <PrintSlideElement key={el.id} el={el} themeHexes={theme} />
                     ))}
+                    {content.showSlideNumbers && (
+                      <span
+                        style={{
+                          position: "absolute",
+                          bottom: 8,
+                          right: 12,
+                          fontSize: 10,
+                          color: `#${theme.subtitleHex}`,
+                        }}
+                      >
+                        {formatDisplayNumber(i + 1, s.dir === "rtl" || ar)}
+                      </span>
+                    )}
                   </section>
                 );
               }
@@ -423,6 +488,21 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
               }
               if (b.kind === "list") {
                 const Tag = b.ordered ? "ol" : "ul";
+                const listStyleMap: Record<string, string> = {
+                  decimal: "decimal",
+                  "arabic-indic": "arabic-indic",
+                  arabic: "arabic-indic",
+                  "upper-alpha": "upper-alpha",
+                  "lower-alpha": "lower-alpha",
+                  "upper-roman": "upper-roman",
+                  "lower-roman": "lower-roman",
+                  disc: "disc",
+                  circle: "circle",
+                  square: "square",
+                };
+                const listType =
+                  (b.listStyle && listStyleMap[b.listStyle]) ||
+                  (b.ordered ? "decimal" : "disc");
                 return (
                   <Tag
                     key={b.id}
@@ -432,7 +512,7 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                       paddingInlineStart: 22,
                       fontSize: 13,
                       lineHeight: 1.8,
-                      listStyleType: b.ordered ? "decimal" : "disc",
+                      listStyleType: listType,
                     }}
                     dir={blockDir}
                   >
@@ -445,20 +525,35 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                 );
               }
               if (b.kind === "table") {
+                const colCount = Math.max(...(b.rows ?? []).map((r) => r.length), 1);
                 return (
                   <table
                     key={b.id}
                     style={{
-                      width: "100%",
+                      width: b.widthPct ? `${b.widthPct}%` : "100%",
                       borderCollapse: "collapse",
+                      tableLayout: b.colWidths ? "fixed" : undefined,
                       margin: "12px 0",
                       fontSize: 12,
                     }}
                     dir={blockDir}
                   >
+                    {b.colWidths && b.colWidths.length === colCount && (
+                      <colgroup>
+                        {b.colWidths.map((cw, cIdx) => (
+                          <col key={cIdx} style={{ width: `${cw}%` }} />
+                        ))}
+                      </colgroup>
+                    )}
                     <tbody>
                       {(b.rows ?? []).map((row, rIdx) => (
-                        <tr key={rIdx} style={{ background: rIdx === 0 ? "#f1f5f9" : undefined }}>
+                        <tr
+                          key={rIdx}
+                          style={{
+                            background: rIdx === 0 ? "#f1f5f9" : undefined,
+                            height: b.rowHeights?.[rIdx] ? `${b.rowHeights[rIdx]}px` : undefined,
+                          }}
+                        >
                           {row.map((cell, cIdx) => (
                             <td
                               key={cIdx}
@@ -511,14 +606,30 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                 );
               }
               if (b.kind === "image" && b.assetId) {
+                const justify =
+                  b.align === "left" ? "flex-start" : b.align === "right" ? "flex-end" : "center";
                 return (
-                  <figure key={b.id} style={{ margin: "12px 0", textAlign: "center" }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`/api/assets/${b.assetId}`}
-                      alt={b.text || "Document visual"}
-                      style={{ maxHeight: 280, margin: "0 auto", borderRadius: 8, objectFit: "contain" }}
-                    />
+                  <figure key={b.id} style={{ margin: "12px 0", display: "flex", flexDirection: "column", alignItems: justify }}>
+                    <div
+                      dir="ltr"
+                      style={{
+                        width: b.widthPct ? `${b.widthPct}%` : "65%",
+                        height: b.heightPx ? `${b.heightPx}px` : undefined,
+                        overflow: "hidden",
+                        borderRadius: 8,
+                        transform: b.rotation ? `rotate(${b.rotation}deg)` : undefined,
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/assets/${b.assetId}`}
+                        alt={b.text || "Document visual"}
+                        style={{
+                          ...croppedImageCss(b.crop, "contain"),
+                          maxHeight: b.heightPx ? undefined : 320,
+                        }}
+                      />
+                    </div>
                     {b.text && (
                       <figcaption style={{ fontSize: 11, color: "#5a6a7a", marginTop: 4 }} dir="auto">
                         {b.text}
@@ -529,7 +640,15 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
               }
               if (b.kind === "chart" && b.chart) {
                 return (
-                  <div key={b.id} style={{ margin: "14px 0", maxWidth: 480 }}>
+                  <div
+                    key={b.id}
+                    style={{
+                      margin: "14px auto",
+                      width: b.widthPct ? `${b.widthPct}%` : "100%",
+                      maxWidth: b.widthPct ? undefined : 520,
+                      height: b.heightPx ? `${b.heightPx}px` : undefined,
+                    }}
+                  >
                     <SlideChart chart={b.chart} rtl={b.dir === "rtl"} />
                   </div>
                 );

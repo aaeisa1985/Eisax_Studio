@@ -1,7 +1,9 @@
+import JSZip from "jszip";
 import PptxGenJS from "pptxgenjs";
-import { presentationContentSchema } from "@/lib/validation/projects";
+import { presentationContentSchema, type ImageCrop } from "@/lib/validation/projects";
 import { resolveSlideTheme } from "@/lib/projects/themes";
 import { resolveParagraphDir } from "@/lib/utils/bidi";
+import { buildOoxmlSrcRect, hasCrop } from "@/lib/utils/mediaStyle";
 import type { AssetResolver } from "@/lib/storage/assets";
 
 export type PptxResult = { fileName: string; data: Buffer };
@@ -25,8 +27,15 @@ export async function buildPptx(
   pptx.company = "EISAX";
   pptx.title = title;
 
+  const slideImageCrops = new Map<number, Array<ImageCrop | undefined>>();
+  let slideNum = 0;
+
   for (const slide of parsed.data.slides) {
+    slideNum += 1;
     const s = pptx.addSlide();
+    if (parsed.data.showSlideNumbers) {
+      s.slideNumber = { x: 9.0, y: 5.2, fontSize: 10, color: theme.subtitleHex };
+    }
     const bgHex =
       slide.bgColor && /^[0-9a-fA-F]{6}$/.test(slide.bgColor.replace(/^#/, ""))
         ? slide.bgColor.replace(/^#/, "").toUpperCase()
@@ -71,15 +80,65 @@ export async function buildPptx(
           const asset = await resolveAsset(el.assetId);
           if (asset) {
             const b64 = asset.data.toString("base64");
+            const list = slideImageCrops.get(slideNum) ?? [];
+            list.push(el.crop);
+            slideImageCrops.set(slideNum, list);
             s.addImage({
               data: `data:${asset.mimeType};base64,${b64}`,
               x,
               y,
               w,
               h,
-              sizing: { type: "contain", w, h },
+              sizing: { type: el.objectFit === "cover" ? "cover" : "contain", w, h },
+              ...(el.rotation ? { rotate: el.rotation } : {}),
             });
           }
+        } else if (el.kind === "table") {
+          const rawRows = el.rows && el.rows.length > 0 ? el.rows : [[" ", " "]];
+          const colCount = Math.max(...rawRows.map((r) => r.length), 1);
+          const colPcts =
+            el.colWidths && el.colWidths.length === colCount
+              ? (() => {
+                  const sum = el.colWidths.reduce((a, b) => a + b, 0) || 100;
+                  return el.colWidths.map((cw) => (cw / sum) * 100);
+                })()
+              : Array.from({ length: colCount }, () => 100 / colCount);
+          const colW = colPcts.map((pct) => Math.max(0.25, (w * pct) / 100));
+          const sumRowH = (el.rowHeights ?? []).reduce((a, b) => a + b, 0);
+          const rowH =
+            el.rowHeights && el.rowHeights.length === rawRows.length && sumRowH > 0
+              ? el.rowHeights.map((rh) => Math.max(0.22, (h * rh) / sumRowH))
+              : undefined;
+          const tableRows = rawRows.map((r, rIdx) =>
+            Array.from({ length: colCount }, (_, cIdx) => {
+              const txt = r[cIdx] ?? "";
+              return {
+                text: txt || " ",
+                options: {
+                  bold: rIdx === 0,
+                  fontSize: Math.max(9, el.fontSize ?? 12),
+                  ...(el.fontFamily ? { fontFace: el.fontFamily } : {}),
+                  color: rIdx === 0 ? theme.titleHex : textHex,
+                  fill: {
+                    color:
+                      rIdx === 0
+                        ? cleanHex(el.fillColor) ?? theme.cardBgHex
+                        : bgHex,
+                  },
+                  align: (elRtl || /[\u0600-\u06FF]/.test(txt) ? "right" : "left") as "right" | "left",
+                },
+              };
+            }),
+          );
+          s.addTable(tableRows, {
+            x,
+            y,
+            w,
+            h,
+            colW,
+            ...(rowH ? { rowH } : {}),
+            border: { type: "solid", pt: 0.75, color: borderHex ?? theme.borderHex },
+          });
         } else if (el.kind === "chart" && el.chart) {
           const ch = el.chart;
           const chartType =
@@ -120,12 +179,14 @@ export async function buildPptx(
             h,
             ...(fillHex ? { fill: { color: fillHex } } : {}),
             ...(borderHex ? { line: { color: borderHex, width: el.borderWidth ?? 1.5 } } : {}),
+            ...(el.rotation ? { rotate: el.rotation } : {}),
           };
           if (el.text && el.text.trim() && el.shape !== "line") {
             s.addText(el.text, {
               ...opts,
               shape: st,
               fontSize: el.fontSize ?? 16,
+              ...(el.fontFamily ? { fontFace: el.fontFamily } : {}),
               bold: el.bold,
               italic: el.italic,
               underline: el.underline ? { style: "sng" } : undefined,
@@ -154,6 +215,7 @@ export async function buildPptx(
               underline?: { style: "sng" };
               color: string;
               fontSize: number;
+              fontFace?: string;
               breakLine?: boolean;
               rtlMode?: boolean;
             };
@@ -161,6 +223,7 @@ export async function buildPptx(
 
           rawRuns.forEach((r) => {
             const parts = r.text.split("\n");
+            const face = r.fontFamily ?? el.fontFamily;
             parts.forEach((part, pIdx) => {
               textRuns.push({
                 text: part || (pIdx === 0 && parts.length === 1 ? " " : ""),
@@ -170,6 +233,7 @@ export async function buildPptx(
                   underline: r.underline ?? el.underline ? { style: "sng" as const } : undefined,
                   color: cleanHex(r.color) ?? textHex,
                   fontSize: r.fontSize ?? el.fontSize ?? 18,
+                  ...(face ? { fontFace: face } : {}),
                   breakLine: pIdx < parts.length - 1,
                   rtlMode: elRtl,
                 },
@@ -185,6 +249,7 @@ export async function buildPptx(
             align: elAlign,
             valign: el.valign ?? "top",
             rtlMode: elRtl,
+            ...(el.rotation ? { rotate: el.rotation } : {}),
             ...(fillHex ? { fill: { color: fillHex } } : {}),
             ...(borderHex ? { line: { color: borderHex, width: el.borderWidth ?? 1 } } : {}),
           });
@@ -470,7 +535,33 @@ export async function buildPptx(
     }
   }
 
-  const data = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+  let data = (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+  const anyCropped = Array.from(slideImageCrops.values()).some((list) =>
+    list.some((c) => hasCrop(c)),
+  );
+  if (anyCropped) {
+    const zip = await JSZip.loadAsync(data);
+    for (const [sIdx, crops] of slideImageCrops.entries()) {
+      if (!crops.some((c) => hasCrop(c))) continue;
+      const slidePath = `ppt/slides/slide${sIdx}.xml`;
+      const slideXml = await zip.file(slidePath)?.async("string");
+      if (!slideXml) continue;
+      let imgCounter = 0;
+      const patched = slideXml.replace(
+        /(<p:blipFill[^>]*>[\s\S]*?<a:blip\b(?:[^>]*\/>|[^>]*>[\s\S]*?<\/a:blip>))([\s\S]*?<\/p:blipFill>)/g,
+        (full, head: string, tail: string) => {
+          const crop = crops[imgCounter++];
+          const srcRectXml = buildOoxmlSrcRect(crop);
+          if (!srcRectXml) return full;
+          const cleanedTail = tail.replace(/<a:srcRect\b[^>]*\/?>/g, "");
+          return `${head}${srcRectXml}${cleanedTail}`;
+        },
+      );
+      zip.file(slidePath, patched);
+    }
+    data = Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
+  }
+
   const safeTitle = title.replace(/[^\p{L}\p{N} _-]+/gu, "").trim() || "presentation";
   return { fileName: `${safeTitle.slice(0, 60)}.pptx`, data };
 }

@@ -96,6 +96,11 @@ body {
   overflow-x: hidden;
 }
 
+select option {
+  background: var(--surface);
+  color: var(--text);
+}
+
 /* ---------- Ambient background ---------- */
 .bg-aurora {
   position: fixed;
@@ -426,6 +431,14 @@ details.faq[open] .faq-chevron {
   padding-inline-start: 1.6rem;
   margin-bottom: 0.75rem;
 }
+.eisax-word-prose ul[data-list-style="circle"] { list-style-type: circle; }
+.eisax-word-prose ul[data-list-style="square"] { list-style-type: square; }
+.eisax-word-prose ol[data-list-style="arabic-indic"] { list-style-type: arabic-indic; }
+.eisax-word-prose ol[data-list-style="arabic"] { list-style-type: arabic-indic; }
+.eisax-word-prose ol[data-list-style="upper-alpha"] { list-style-type: upper-alpha; }
+.eisax-word-prose ol[data-list-style="lower-alpha"] { list-style-type: lower-alpha; }
+.eisax-word-prose ol[data-list-style="upper-roman"] { list-style-type: upper-roman; }
+.eisax-word-prose ol[data-list-style="lower-roman"] { list-style-type: lower-roman; }
 .eisax-word-prose li {
   margin-bottom: 0.25rem;
 }
@@ -454,24 +467,50 @@ details.faq[open] .faq-chevron {
   outline: 2px solid #0ea5e9;
   outline-offset: 2px;
 }
+.eisax-word-prose .tableWrapper {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 0.9rem 0;
+  position: relative;
+}
 .eisax-word-prose table {
   border-collapse: collapse;
   width: 100%;
-  margin: 0.9rem 0;
+  margin: 0;
   table-layout: fixed;
+  overflow: visible;
 }
 .eisax-word-prose th,
 .eisax-word-prose td {
   border: 1px solid #cbd5e1;
   padding: 0.45rem 0.65rem;
   vertical-align: top;
-  min-width: 2.5rem;
+  min-width: 2.25rem;
   position: relative;
+  box-sizing: border-box;
 }
 .eisax-word-prose th {
   background: #f1f5f9;
   font-weight: 700;
   color: #0f172a;
+}
+.eisax-word-prose .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 5px;
+  background-color: #0ea5e9;
+  pointer-events: none;
+  z-index: 25;
+}
+.eisax-word-prose.resize-cursor {
+  cursor: col-resize;
+}
+.eisax-word-prose.row-resize-cursor,
+.eisax-word-prose.row-resize-cursor td,
+.eisax-word-prose.row-resize-cursor th {
+  cursor: row-resize;
 }
 .eisax-word-prose .selectedCell::after {
   content: "";
