@@ -1,0 +1,24 @@
+version: "3.9"
+
+# Local/staging only. Do NOT point at production systems or enable billing.
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      # EMBEDDED PGlite keeps state in this volume. Swap to a managed Postgres
+      # DATABASE_URL when approved (see ARCHITECTURE.md for the driver change).
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env.local or environment}
+      FEATURE_BILLING: "false"
+      NODE_ENV: production
+    volumes:
+      - app-data:/app/.data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  app-data:

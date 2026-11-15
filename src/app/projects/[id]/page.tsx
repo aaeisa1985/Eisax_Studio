@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getCurrentUser, getPrimaryWorkspaceId } from "@/lib/auth/session";
 import { getProject, listRevisions } from "@/lib/projects/service";
+import { getMonthlyUsage } from "@/lib/billing/usage";
 import { LOCALE_COOKIE, getLocale } from "@/lib/i18n";
 import { ProjectEditor, type EditorProject } from "@/components/ProjectEditor";
 
@@ -30,6 +31,7 @@ export default async function ProjectPage(props: { params: Promise<{ id: string 
   }
 
   const revisions = await listRevisions(user.id, id);
+  const usage = await getMonthlyUsage(user.id);
   const jar = await cookies();
   const locale = getLocale(jar.get(LOCALE_COOKIE)?.value, project.language);
 
@@ -38,6 +40,7 @@ export default async function ProjectPage(props: { params: Promise<{ id: string 
     <ProjectEditor
       locale={locale}
       revisions={revisions.map((r) => ({ revisionNo: r.revisionNo, createdAt: r.createdAt.toISOString() }))}
+      initialUsage={{ used: usage.used, limit: usage.limit }}
       project={{
         id: project.id,
         type: project.type as "presentation" | "document",

@@ -108,3 +108,38 @@ export const auditLog = pgTable(
   },
   (t) => [index("audit_log_action_idx").on(t.action, t.at.desc())],
 );
+
+export const generationJobs = pgTable(
+  "generation_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    operation: text("operation").notNull(), // generate_outline | generate_content | edit_block
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    status: text("status").notNull(), // succeeded | failed
+    error: text("error"),
+    units: integer("units").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("generation_jobs_user_idx").on(t.userId, t.createdAt.desc())],
+);
+
+export const usageLedger = pgTable(
+  "usage_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // ai_operation
+    units: integer("units").notNull().default(1),
+    period: text("period").notNull(), // 'YYYY-MM'
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    idempotencyKey: text("idempotency_key").unique(),
+  },
+  (t) => [index("usage_ledger_user_period_idx").on(t.userId, t.period)],
+);

@@ -9,6 +9,7 @@ import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { createSession, destroySession, getCurrentUser } from "@/lib/auth/session";
 import { signInSchema, signUpSchema } from "@/lib/validation/projects";
 import { rateLimit } from "@/lib/security/rateLimit";
+import { audit } from "@/lib/security/audit";
 
 export type AuthResult = { ok: true } | { ok: false; error: "invalid_credentials" | "email_taken" | "rate_limited" | "invalid_input" };
 
@@ -42,7 +43,6 @@ export async function signUpAction(_prev: AuthResult | null, formData: FormData)
     .returning({ id: users.id });
   const user = inserted[0];
   if (!user) return { ok: false, error: "invalid_input" };
-
   // Personal workspace
   const ws = await db
     .insert(workspaces)
@@ -53,6 +53,7 @@ export async function signUpAction(_prev: AuthResult | null, formData: FormData)
   }
 
   await createSession(user.id);
+  await audit(user.id, "user.sign_up");
   redirect("/dashboard");
 }
 
@@ -78,11 +79,13 @@ export async function signInAction(_prev: AuthResult | null, formData: FormData)
   }
 
   await createSession(user.id);
+  await audit(user.id, "user.sign_in");
   redirect("/dashboard");
 }
 
 export async function signOutAction(): Promise<void> {
   await destroySession();
+  await audit(null, "user.sign_out");
   redirect("/");
 }
 

@@ -11,6 +11,7 @@ import {
   restoreRevision,
   updateProject,
 } from "@/lib/projects/service";
+import { audit } from "@/lib/security/audit";
 
 export async function createProjectAction(formData: FormData): Promise<void> {
   const user = await requireUser();
@@ -39,6 +40,7 @@ export async function deleteProjectAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const projectId = String(formData.get("projectId") ?? "");
   await deleteProject(user.id, projectId);
+  await audit(user.id, "project.delete", { projectId });
   revalidatePath("/dashboard");
 }
 

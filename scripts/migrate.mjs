@@ -14,7 +14,7 @@ await client.exec(`
     applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
 `);
-const applied = await client.query<{ name: string }>("SELECT name FROM _migrations");
+const applied = await client.query("SELECT name FROM _migrations");
 const appliedNames = new Set(applied.rows.map((r) => r.name));
 
 const dir = path.resolve(process.cwd(), "src", "lib", "db", "migrations");

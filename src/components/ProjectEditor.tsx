@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { updateProjectContentAction, updateProjectMetaAction, restoreRevisionAction } from "@/app/project-actions";
+import { AiGeneratePanel, AiMenu } from "@/components/AiAssist";
 import { t, type Locale } from "@/lib/i18n";
 
 export type EditorProject = {
@@ -24,10 +25,12 @@ export function ProjectEditor({
   project,
   locale,
   revisions,
+  initialUsage,
 }: {
   project: EditorProject;
   locale: Locale;
   revisions: Array<{ revisionNo: number; createdAt: string }>;
+  initialUsage: { used: number; limit: number };
 }) {
   const tr = (k: Parameters<typeof t>[1]) => t(locale, k);
   const [title, setTitle] = useState(project.title);
@@ -159,6 +162,20 @@ export function ProjectEditor({
           <span aria-live="polite" className="text-xs" style={{ color: "var(--text-dim)" }}>
             {saveLabel}
           </span>
+          <div className="flex items-center gap-2">
+            {project.type === "presentation" ? (
+              <a href={`/api/projects/${project.id}/export/pptx`} className="btn btn-ghost text-xs no-underline">
+                ⬇ PPTX
+              </a>
+            ) : (
+              <a href={`/api/projects/${project.id}/export/docx`} className="btn btn-ghost text-xs no-underline">
+                ⬇ DOCX
+              </a>
+            )}
+            <Link href={`/projects/${project.id}/print`} className="btn btn-ghost text-xs no-underline">
+              ⬇ PDF
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -180,6 +197,12 @@ export function ProjectEditor({
                   + {tr("addSlide")}
                 </button>
               </div>
+              <AiGeneratePanel
+                projectId={project.id}
+                type="presentation"
+                locale={locale}
+                usage={initialUsage}
+              />
               <ol className="space-y-2">
                 {slides.map((s, i) => (
                   <li key={s.id}>
@@ -220,6 +243,26 @@ export function ProjectEditor({
                     >
                       {tr("deleteSlide")}
                     </button>
+                    <span className="ms-auto flex items-center gap-1.5">
+                      <AiMenu
+                        projectId={project.id}
+                        locale={locale}
+                        text={slides[selectedSlide]!.title}
+                        onApply={(next) => updateSlide(selectedSlide, { title: next })}
+                      />
+                      <AiMenu
+                        projectId={project.id}
+                        locale={locale}
+                        text={slides[selectedSlide]!.subtitle}
+                        onApply={(next) => updateSlide(selectedSlide, { subtitle: next })}
+                      />
+                      <AiMenu
+                        projectId={project.id}
+                        locale={locale}
+                        text={slides[selectedSlide]!.notes}
+                        onApply={(next) => updateSlide(selectedSlide, { notes: next })}
+                      />
+                    </span>
                   </div>
                   <input
                     value={slides[selectedSlide]!.title}
@@ -269,6 +312,12 @@ export function ProjectEditor({
                   </button>
                 </div>
               </div>
+              <AiGeneratePanel
+                projectId={project.id}
+                type="document"
+                locale={locale}
+                usage={initialUsage}
+              />
               <ol className="space-y-1.5">
                 {blocks.map((b, i) => (
                   <li key={b.id}>
@@ -289,7 +338,23 @@ export function ProjectEditor({
             <section className="editor-surface rounded-2xl border p-8 shadow" style={{ borderColor: "var(--border)" }}>
               <article style={{ maxWidth: "52rem" }}>
                 {blocks.map((b, i) => (
-                  <div key={b.id} id={`block-${b.id}`} className="mb-3">
+                  <div key={b.id} id={`block-${b.id}`} className="mb-3 group">
+                    <div className="mb-1 flex items-center gap-2">
+                      <span
+                        className="no-print text-xs opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                      >
+                        <AiMenu
+                          projectId={project.id}
+                          locale={locale}
+                          text={b.text}
+                          targetLang={project.language === "ar" ? "ar" : "en"}
+                          onApply={(next) => updateBlock(i, { text: next, dir: textDirFor(next) })}
+                        />
+                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "#8a99a9" }}>
+                        {b.kind === "heading" ? `H${b.level ?? 2}` : tr("paragraph")}
+                      </span>
+                    </div>
                     {b.kind === "heading" ? (
                       <input
                         value={b.text}
