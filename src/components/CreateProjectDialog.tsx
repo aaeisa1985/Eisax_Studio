@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createProjectAction } from "@/app/project-actions";
+import { createProjectAction, createProjectFromTemplateAction } from "@/app/project-actions";
 import { aiCreateProjectFromOutlineAction, aiPreviewOutlineAction } from "@/app/ai-actions";
 import { ErrorNote } from "@/components/AiAssist";
 import { SLIDE_THEMES, type SlideThemeId } from "@/lib/projects/themes";
+import { STARTER_TEMPLATES } from "@/lib/projects/templates";
 import type { Outline } from "@/lib/ai/types";
 import { t, type Locale } from "@/lib/i18n";
 
@@ -18,7 +19,7 @@ export function CreateProjectDialog({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"ai" | "blank">("ai");
+  const [mode, setMode] = useState<"ai" | "templates" | "blank">("ai");
   const [type, setType] = useState<"presentation" | "document">("presentation");
   const [language, setLanguage] = useState<"en" | "ar">(locale === "ar" ? "ar" : "en");
   const [prompt, setPrompt] = useState("");
@@ -91,6 +92,20 @@ export function CreateProjectDialog({
     router.push(`/projects/${res.projectId}`);
   }
 
+  async function handleSelectTemplate(templateId: string) {
+    setBusy(true);
+    setError(undefined);
+    const res = await createProjectFromTemplateAction(templateId);
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setOpen(false);
+    resetWizard();
+    router.push(`/projects/${res.projectId}`);
+  }
+
   return (
     <>
       <button type="button" className="btn btn-primary text-sm" onClick={() => setOpen(true)}>
@@ -134,7 +149,7 @@ export function CreateProjectDialog({
               </button>
             </div>
 
-            <div className="mb-5 grid grid-cols-2 gap-2 rounded-xl border p-1" style={{ borderColor: "var(--border)" }}>
+            <div className="mb-5 grid grid-cols-3 gap-1.5 rounded-xl border p-1" style={{ borderColor: "var(--border)" }}>
               <button
                 type="button"
                 className={`rounded-lg py-2 text-xs font-semibold transition-colors ${mode === "ai" ? "btn-primary" : ""}`}
@@ -144,7 +159,18 @@ export function CreateProjectDialog({
                   setError(undefined);
                 }}
               >
-                ✨ {ar ? "إنشاء بالذكاء الاصطناعي" : "Create with AI"}
+                ✨ {ar ? "بالذكاء الاصطناعي" : "Create with AI"}
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg py-2 text-xs font-semibold transition-colors ${mode === "templates" ? "btn-primary" : ""}`}
+                style={mode === "templates" ? undefined : { color: "var(--text-dim)" }}
+                onClick={() => {
+                  setMode("templates");
+                  setError(undefined);
+                }}
+              >
+                ▤ {ar ? "القوالب" : "Templates"}
               </button>
               <button
                 type="button"
@@ -155,11 +181,39 @@ export function CreateProjectDialog({
                   setError(undefined);
                 }}
               >
-                + {ar ? "مشروع فارغ" : "Blank project"}
+                + {ar ? "فارغ" : "Blank"}
               </button>
             </div>
 
-            {mode === "blank" ? (
+            {mode === "templates" ? (
+              <div className="space-y-3">
+                <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+                  {ar ? "ابدأ فورًا من قالب منظم قابل للتعديل والتصدير:" : "Start immediately from a structured, editable template:"}
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {STARTER_TEMPLATES.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleSelectTemplate(tpl.id)}
+                      className="card card-hover p-4 text-start"
+                    >
+                      <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--turquoise)" }}>
+                        {tpl.type === "presentation" ? `▦ ${tr("presentation")}` : `📄 ${tr("document")}`} · {tpl.language.toUpperCase()}
+                      </span>
+                      <p className="mt-1.5 text-sm font-bold" dir="auto">
+                        {ar ? tpl.nameAr : tpl.nameEn}
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed" style={{ color: "var(--text-dim)" }} dir="auto">
+                        {ar ? tpl.descAr : tpl.descEn}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+                <ErrorNote error={error} locale={locale} />
+              </div>
+            ) : mode === "blank" ? (
               <form action={createProjectAction} className="space-y-4">
                 <div>
                   <label htmlFor="np-title" className="mb-1 block text-sm font-medium">

@@ -5,6 +5,7 @@ import { buildPptx } from "@/lib/export/pptx";
 import { audit } from "@/lib/security/audit";
 import { rateLimit } from "@/lib/security/rateLimit";
 import { checkExportAllowed } from "@/lib/billing/usage";
+import { createAssetResolver } from "@/lib/storage/assets";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export async function GET(
     return NextResponse.json({ error: "wrong_type" }, { status: 400 });
   }
 
-  const result = await buildPptx(project.title, project.content);
+  const result = await buildPptx(project.title, project.content, createAssetResolver(user.id));
   if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 422 });
   }

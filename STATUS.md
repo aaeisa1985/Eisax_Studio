@@ -55,7 +55,8 @@
 **Verified (exact commands and results):**
 - `npm run db:migrate` → applied `0003_subscriptions_assets.sql` (exit 0).
 - `npm run typecheck` (`tsc --noEmit`) → exit 0, no errors.
-- `npm test` (`vitest run`) → **4 test files, 37/37 tests passed** (`tests/phase1.test.ts` 14, `tests/phase2-export.test.ts` 5, `tests/phase3-ai.test.ts` 13, `tests/phase5-hardening.test.ts` 5) — real PGlite DB, real OOXML PPTX/DOCX ZIP inspection, mocked `fetch` for `OpenAICompatibleProvider` (no live external calls), Stripe HMAC verification, and local storage adapter checks.
+- `npm test` (`vitest run`) → **4 test files, 39/39 tests passed** (`tests/phase1.test.ts` 14, `tests/phase2-export.test.ts` 5, `tests/phase3-ai.test.ts` 13, `tests/phase5-hardening.test.ts` 7) — real PGlite DB, real OOXML PPTX/DOCX ZIP inspection, mocked `fetch` for `OpenAICompatibleProvider` (no live external calls), Stripe HMAC verification, magic-byte asset sniffing + tenancy, and starter template schema validation.
+- Also added bilingual starter templates (`src/lib/projects/templates.ts`) and secure workspace image upload/serving (`/api/assets`, `/api/assets/[id]`) with embedded image export in PPTX, DOCX, and PDF print views.
 - `npm run build` (`next build`) → exit 0, 13 routes built cleanly.
 - **Browser E2E smoke test** against live `next start -p 3100` (all 8 checks passed):
   1. `GET /api/health` → 200 `{"status":"ok","db":"ready"}`.

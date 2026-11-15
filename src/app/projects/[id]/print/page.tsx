@@ -132,6 +132,16 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                       ))}
                     </ul>
                   )}
+                  {s.imageAssetId && (
+                    <div style={{ marginTop: 12 }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/assets/${s.imageAssetId}`}
+                        alt={s.imageCaption || s.title || "Slide visual"}
+                        style={{ maxHeight: 180, borderRadius: 8, objectFit: "contain" }}
+                      />
+                    </div>
+                  )}
                 </section>
               );
             })}
@@ -239,6 +249,23 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                       {b.text || b.url}
                     </a>
                   </p>
+                );
+              }
+              if (b.kind === "image" && b.assetId) {
+                return (
+                  <figure key={b.id} style={{ margin: "12px 0", textAlign: "center" }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/assets/${b.assetId}`}
+                      alt={b.text || "Document visual"}
+                      style={{ maxHeight: 280, margin: "0 auto", borderRadius: 8, objectFit: "contain" }}
+                    />
+                    {b.text && (
+                      <figcaption style={{ fontSize: 11, color: "#5a6a7a", marginTop: 4 }} dir="auto">
+                        {b.text}
+                      </figcaption>
+                    )}
+                  </figure>
                 );
               }
               return (

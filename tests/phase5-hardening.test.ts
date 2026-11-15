@@ -3,12 +3,15 @@ import { createHmac } from "node:crypto";
 import path from "node:path";
 import { rmSync } from "node:fs";
 import { getDb } from "@/lib/db";
-import { auditLog, users } from "@/lib/db/schema";
+import { auditLog, users, workspaces, workspaceMembers } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { audit } from "@/lib/security/audit";
 import { planForWorkspace, BILLING_ENABLED } from "@/lib/billing/plans";
 import { verifyStripeSignature } from "@/lib/billing/stripe";
 import { LocalStorageAdapter } from "@/lib/storage";
+import { getWorkspaceAsset, saveWorkspaceAsset, sniffRasterImageMime } from "@/lib/storage/assets";
+import { STARTER_TEMPLATES } from "@/lib/projects/templates";
+import { documentContentSchema, presentationContentSchema } from "@/lib/validation/projects";
 import { hashPassword } from "@/lib/auth/password";
 
 const suffix = Date.now().toString(36);
@@ -80,6 +83,47 @@ describe("local storage adapter", () => {
       expect(await adapter.get(key)).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("sniffs magic bytes, rejects SVG/HTML/executables, and enforces workspace tenancy on assets", async () => {
+    const pngHeader = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+    const jpgHeader = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const svgBytes = Buffer.from("<svg onload=alert(1)></svg>");
+
+    expect(sniffRasterImageMime(pngHeader)).toBe("image/png");
+    expect(sniffRasterImageMime(jpgHeader)).toBe("image/jpeg");
+    expect(sniffRasterImageMime(svgBytes)).toBeNull();
+
+    const db = await getDb();
+    const owner = (
+      await db.insert(users).values({ email: `asset-o-${suffix}@test.dev`, passwordHash: "x", displayName: "O" }).returning()
+    )[0]!;
+    const stranger = (
+      await db.insert(users).values({ email: `asset-s-${suffix}@test.dev`, passwordHash: "x", displayName: "S" }).returning()
+    )[0]!;
+    const ws = (await db.insert(workspaces).values({ name: "ws", ownerId: owner.id }).returning())[0]!;
+    await db.insert(workspaceMembers).values({ workspaceId: ws.id, userId: owner.id, role: "owner" });
+
+    const rejected = await saveWorkspaceAsset({ userId: owner.id, workspaceId: ws.id, bytes: svgBytes });
+    expect(rejected).toEqual({ ok: false, error: "unsupported_file_type" });
+
+    const saved = await saveWorkspaceAsset({ userId: owner.id, workspaceId: ws.id, bytes: pngHeader });
+    expect(saved.ok).toBe(true);
+    if (saved.ok) {
+      expect((await getWorkspaceAsset({ userId: owner.id, assetId: saved.id }))?.mimeType).toBe("image/png");
+      expect(await getWorkspaceAsset({ userId: stranger.id, assetId: saved.id })).toBeNull();
+    }
+  });
+
+  it("all starter templates validate against presentation/document schemas", () => {
+    expect(STARTER_TEMPLATES.length).toBeGreaterThanOrEqual(4);
+    for (const tpl of STARTER_TEMPLATES) {
+      if (tpl.type === "presentation") {
+        expect(presentationContentSchema.safeParse(tpl.content).success).toBe(true);
+      } else {
+        expect(documentContentSchema.safeParse(tpl.content).success).toBe(true);
+      }
     }
   });
 });

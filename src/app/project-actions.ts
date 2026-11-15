@@ -12,6 +12,30 @@ import {
   updateProject,
 } from "@/lib/projects/service";
 import { audit } from "@/lib/security/audit";
+import { STARTER_TEMPLATES } from "@/lib/projects/templates";
+
+export async function createProjectFromTemplateAction(
+  templateId: string,
+): Promise<{ ok: true; projectId: string } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const workspaceId = await getPrimaryWorkspaceId(user.id);
+  if (!workspaceId) return { ok: false, error: "noworkspace" };
+  const tpl = STARTER_TEMPLATES.find((t) => t.id === templateId);
+  if (!tpl) return { ok: false, error: "invalid_template" };
+
+  const created = await createProject(user.id, workspaceId, {
+    title: tpl.language === "ar" ? tpl.nameAr : tpl.nameEn,
+    type: tpl.type,
+    language: tpl.language,
+  });
+  if (!created.ok) return { ok: false, error: created.error };
+
+  const updated = await updateProject(user.id, created.id, { content: tpl.content });
+  if (!updated.ok) return { ok: false, error: updated.error ?? "failed" };
+
+  revalidatePath("/dashboard");
+  return { ok: true, projectId: created.id };
+}
 
 export async function createProjectAction(formData: FormData): Promise<void> {
   const user = await requireUser();

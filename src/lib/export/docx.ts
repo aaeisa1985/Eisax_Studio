@@ -4,6 +4,7 @@ import {
   Document,
   ExternalHyperlink,
   HeadingLevel,
+  ImageRun,
   Packer,
   Paragraph,
   ShadingType,
@@ -15,6 +16,7 @@ import {
 } from "docx";
 import { documentContentSchema } from "@/lib/validation/projects";
 import { parseInlineSegments } from "@/lib/utils/inlineFormat";
+import type { AssetResolver } from "@/lib/storage/assets";
 
 export type DocxResult = { fileName: string; data: Buffer };
 
@@ -42,6 +44,7 @@ function inlineRuns(text: string, rtl: boolean, color?: string): TextRun[] {
 export async function buildDocx(
   title: string,
   content: unknown,
+  resolveAsset?: AssetResolver,
 ): Promise<DocxResult | { error: "invalid_content" }> {
   const parsed = documentContentSchema.safeParse(content);
   if (!parsed.success) return { error: "invalid_content" };
@@ -140,6 +143,32 @@ export async function buildDocx(
             : { left: { color: "00A89E", space: 10, style: BorderStyle.SINGLE, size: 18 } },
         }),
       );
+    } else if (block.kind === "image") {
+      const asset = block.assetId && resolveAsset ? await resolveAsset(block.assetId) : null;
+      if (asset && (asset.mimeType === "image/png" || asset.mimeType === "image/jpeg")) {
+        const imgType = asset.mimeType === "image/png" ? "png" : "jpg";
+        children.push(
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [
+              new ImageRun({
+                data: asset.data,
+                type: imgType,
+                transformation: { width: 420, height: 260 },
+              }),
+            ],
+          }),
+        );
+      }
+      if (block.text.trim()) {
+        children.push(
+          new Paragraph({
+            children: inlineRuns(block.text, rtl, "5A6A7A"),
+            bidirectional: rtl,
+            alignment: AlignmentType.CENTER,
+          }),
+        );
+      }
     } else if (block.kind === "link") {
       const label = block.text.trim() || block.url || "Link";
       if (block.url && /^https?:\/\//i.test(block.url)) {

@@ -1,16 +1,18 @@
 import PptxGenJS from "pptxgenjs";
 import { presentationContentSchema } from "@/lib/validation/projects";
 import { resolveSlideTheme } from "@/lib/projects/themes";
+import type { AssetResolver } from "@/lib/storage/assets";
 
 export type PptxResult = { fileName: string; data: Buffer };
 
 /**
- * Build a real PPTX where every title, subtitle, bullet, and shape is native,
- * editable Office XML (never flattened images). RTL slides use pptxgenjs rtlMode.
+ * Build a real PPTX where every title, subtitle, bullet, shape, and embedded image
+ * is native Office XML (never flattened slide screenshots). RTL slides use pptxgenjs rtlMode.
  */
 export async function buildPptx(
   title: string,
   content: unknown,
+  resolveAsset?: AssetResolver,
 ): Promise<PptxResult | { error: "invalid_content" }> {
   const parsed = presentationContentSchema.safeParse(content);
   if (!parsed.success) return { error: "invalid_content" };
@@ -67,9 +69,23 @@ export async function buildPptx(
       });
     }
 
-    const contentX = 0.65;
-    const contentW = 8.7;
+    const asset =
+      slide.imageAssetId && resolveAsset ? await resolveAsset(slide.imageAssetId) : null;
+    const contentX = asset && rtl ? 4.05 : 0.65;
+    const contentW = asset ? 5.3 : 8.7;
     const topY = accentShape === "badge" ? 0.9 : 0.65;
+
+    if (asset) {
+      const b64 = asset.data.toString("base64");
+      s.addImage({
+        data: `data:${asset.mimeType};base64,${b64}`,
+        x: rtl ? 0.65 : 6.2,
+        y: 1.0,
+        w: 3.15,
+        h: 3.15,
+        sizing: { type: "contain", w: 3.15, h: 3.15 },
+      });
+    }
 
     if (layout === "quote") {
       if (hasTitle) {

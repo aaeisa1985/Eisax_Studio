@@ -56,6 +56,8 @@ export const slideItemSchema = z.object({
   bullets: z.array(z.string().max(500)).max(12).default([]),
   layout: slideLayoutSchema.default("title-body"),
   accentShape: slideAccentShapeSchema.default("bar"),
+  imageAssetId: z.string().uuid().optional(),
+  imageCaption: z.string().max(300).optional(),
   notes: z.string().max(5000).default(""),
   dir: z.enum(["ltr", "rtl"]).default("ltr"),
 });
@@ -77,6 +79,7 @@ export const documentBlockKindSchema = z.enum([
   "table",
   "quote",
   "link",
+  "image",
 ]);
 export type DocumentBlockKind = z.infer<typeof documentBlockKindSchema>;
 
@@ -98,6 +101,7 @@ export const documentBlockSchema = z.object({
   items: z.array(z.string().max(2000)).max(100).optional(),
   rows: z.array(z.array(z.string().max(1000)).max(12)).max(50).optional(),
   url: safeUrlSchema.optional(),
+  assetId: z.string().uuid().optional(),
   dir: z.enum(["ltr", "rtl"]).default("ltr"),
 });
 

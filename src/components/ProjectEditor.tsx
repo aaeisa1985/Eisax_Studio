@@ -27,6 +27,8 @@ export type EditorSlide = {
   bullets?: string[];
   layout?: SlideLayout;
   accentShape?: SlideAccentShape;
+  imageAssetId?: string;
+  imageCaption?: string;
   notes: string;
   dir: string;
 };
@@ -40,6 +42,7 @@ export type EditorBlock = {
   items?: string[];
   rows?: string[][];
   url?: string;
+  assetId?: string;
   dir: string;
 };
 
@@ -95,6 +98,28 @@ export function ProjectEditor({
   const [selectedSlide, setSelectedSlide] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState(initialUsage);
+  const [uploading, setUploading] = useState(false);
+
+  async function uploadImageAsset(file: File): Promise<string | null> {
+    setUploading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/assets", { method: "POST", body: fd });
+      const data = (await res.json()) as { id?: string; error?: string };
+      if (!res.ok || !data.id) {
+        setError(data.error ?? "upload_failed");
+        return null;
+      }
+      return data.id;
+    } catch {
+      setError("upload_failed");
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  }
 
   // Undo / Redo history
   const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
@@ -620,6 +645,22 @@ export function ProjectEditor({
                       >
                         {currentSlide.dir === "rtl" ? "RTL" : "LTR"}
                       </button>
+                      <label className="btn btn-ghost cursor-pointer !px-2 !py-1 text-xs">
+                        {uploading ? "…" : ar ? "🖼 صورة" : "🖼 Image"}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="sr-only"
+                          disabled={uploading}
+                          onChange={async (e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!f) return;
+                            const id = await uploadImageAsset(f);
+                            if (id) updateSlide(selectedSlide, { imageAssetId: id });
+                          }}
+                        />
+                      </label>
                     </div>
                   </div>
 
@@ -785,6 +826,25 @@ export function ProjectEditor({
                         </div>
                       )}
                     </div>
+                    {currentSlide.imageAssetId && (
+                      <div className="mt-5 flex items-start gap-3 ps-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`/api/assets/${currentSlide.imageAssetId}`}
+                          alt={currentSlide.imageCaption || currentSlide.title || "Slide visual"}
+                          className="max-h-44 rounded-lg border object-contain"
+                          style={{ borderColor: `#${activeTheme.borderHex}` }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-ghost !px-2 !py-1 text-xs"
+                          style={{ color: "#ff8b8b" }}
+                          onClick={() => updateSlide(selectedSlide, { imageAssetId: undefined, imageCaption: undefined })}
+                        >
+                          {ar ? "إزالة الصورة" : "Remove image"}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Speaker notes */}
@@ -839,6 +899,9 @@ export function ProjectEditor({
                 </button>
                 <button type="button" className="btn btn-ghost justify-center !px-2 !py-1.5 text-xs" onClick={() => addBlock("link")}>
                   + {ar ? "رابط" : "Link"}
+                </button>
+                <button type="button" className="btn btn-ghost col-span-2 justify-center !px-2 !py-1.5 text-xs" onClick={() => addBlock("image")}>
+                  + {ar ? "🖼 صورة (PNG/JPG)" : "🖼 Image (PNG/JPG)"}
                 </button>
               </div>
               <ol className="space-y-1.5">
@@ -1151,6 +1214,54 @@ export function ProjectEditor({
                           onChange={(e) => updateBlock(i, { url: e.target.value })}
                           className="rounded border border-slate-300 bg-white px-2.5 py-1.5 text-sm outline-none"
                         />
+                      </div>
+                    )}
+
+                    {b.kind === "image" && (
+                      <div className="space-y-2">
+                        {b.assetId ? (
+                          <div className="flex flex-col items-start gap-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={`/api/assets/${b.assetId}`}
+                              alt={b.text || "Document image"}
+                              className="max-h-64 rounded-lg border border-slate-200 object-contain"
+                            />
+                            <input
+                              value={b.text}
+                              dir="auto"
+                              maxLength={300}
+                              placeholder={ar ? "وصف أو تعليق للصورة…" : "Image caption / alt text…"}
+                              onChange={(e) =>
+                                updateBlock(i, { text: e.target.value, dir: textDirFor(e.target.value) })
+                              }
+                              className="w-full rounded border border-slate-300 bg-white px-2.5 py-1 text-sm outline-none"
+                            />
+                          </div>
+                        ) : (
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-3 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                            {uploading
+                              ? ar
+                                ? "جارٍ رفع الصورة…"
+                                : "Uploading image…"
+                              : ar
+                                ? "اختر صورة (PNG / JPEG / WebP حتى 5MB)"
+                                : "Choose image (PNG / JPEG / WebP up to 5MB)"}
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              className="sr-only"
+                              disabled={uploading}
+                              onChange={async (e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = "";
+                                if (!f) return;
+                                const id = await uploadImageAsset(f);
+                                if (id) updateBlock(i, { assetId: id });
+                              }}
+                            />
+                          </label>
+                        )}
                       </div>
                     )}
                   </div>
