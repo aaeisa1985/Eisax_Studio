@@ -17,7 +17,7 @@ export class OpenAICompatibleProvider implements AIProvider {
 
   private async callChat(system: string, user: string, jsonMode: boolean): Promise<string> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25_000);
+    const timer = setTimeout(() => controller.abort(), 90_000);
     const endpoint = `${this.baseUrl.replace(/\/+$/, "")}/chat/completions`;
 
     try {
@@ -79,8 +79,56 @@ export class OpenAICompatibleProvider implements AIProvider {
       .join("\n");
 
     const raw = await this.callChat(system, userPrompt, true);
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
-    const parsedJson = JSON.parse(cleaned) as unknown;
+    const stripped = raw.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
+    const jsonMatch = stripped.match(/\{[\s\S]*\}/);
+    const parsedJson = JSON.parse(jsonMatch ? jsonMatch[0] : stripped) as Record<string, unknown>;
+
+    const sanitizeChart = (rawChart: unknown) => {
+      if (!rawChart || typeof rawChart !== "object") return undefined;
+      const c = rawChart as Record<string, unknown>;
+      const kind = c.kind === "line" || c.kind === "pie" || c.kind === "bar" ? c.kind : "bar";
+      const cats = Array.isArray(c.categories) ? c.categories.map((x) => String(x).slice(0, 60)) : [];
+      const vals = Array.isArray(c.values) ? c.values.map((x) => Number(x)).filter(Number.isFinite) : [];
+      const n = Math.min(cats.length, vals.length, 10);
+      if (n < 2) return undefined;
+      return {
+        kind,
+        title: String(c.title ?? "Metrics").slice(0, 200),
+        categories: cats.slice(0, n),
+        values: vals.slice(0, n),
+        unit: typeof c.unit === "string" && c.unit.trim() ? c.unit.trim().slice(0, 20) : undefined,
+      };
+    };
+
+    if (Array.isArray(parsedJson.slides)) {
+      parsedJson.slides = parsedJson.slides.map((sl) => {
+        if (!sl || typeof sl !== "object") return sl;
+        const s = { ...(sl as Record<string, unknown>) };
+        if (Array.isArray(s.bullets)) {
+          s.bullets = s.bullets.slice(0, 12).map((b) => String(b).slice(0, 500));
+        }
+        s.chart = sanitizeChart(s.chart);
+        return s;
+      });
+    }
+    if (Array.isArray(parsedJson.blocks)) {
+      parsedJson.blocks = parsedJson.blocks.map((bl) => {
+        if (!bl || typeof bl !== "object") return bl;
+        const b = { ...(bl as Record<string, unknown>) };
+        if (b.kind === "chart") {
+          const clean = sanitizeChart(b.chart);
+          if (!clean) b.kind = "paragraph";
+          b.chart = clean;
+        } else {
+          delete b.chart;
+        }
+        return b;
+      });
+    }
+    if (parsedJson.language !== "en" && parsedJson.language !== "ar") {
+      parsedJson.language = language;
+    }
+
     return outlineSchema.parse(parsedJson);
   }
 
