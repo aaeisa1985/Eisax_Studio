@@ -76,3 +76,22 @@
 3. PGlite is single-connection; swap `src/lib/db/index.ts` to `drizzle-orm/node-postgres` + `DATABASE_URL` when scaling to hosted Postgres.
 4. Billing (`FEATURE_BILLING=false`) stays hard-disabled until explicitly approved and Stripe secrets are configured.
 5. `docker build` was not executed locally because Docker is not installed on this machine.
+
+---
+
+## Final verification & repository sync (2026-11-15)
+
+Re-ran the full gate on a clean working tree (`git status` → 0 changes) after the V1 commit:
+
+- `npm run typecheck` (`tsc --noEmit`) → exit 0, no errors.
+- `npm test` (`vitest run`) → **4 files, 37/37 tests passed** (phase1 14, phase2-export 5, phase3-ai 13, phase5-hardening 5).
+- `npm run build` (`next build`) → exit 0; 13 routes (8 pages + 5 API routes) built.
+- Production `next start` HTTP smoke (anonymous):
+  - `/` → 200, `/sign-in` → 200, `/sign-up` → 200
+  - `/api/health` → 200 `{"status":"ok","db":"ready"}`
+  - `/dashboard` → 307 (redirect to sign-in, guard works)
+  - `/api/projects/<id>/export/pptx` → 401 (auth required)
+  - `/api/billing/checkout` → 405 on GET (POST-only, gated by `FEATURE_BILLING=false`)
+- Repository: `https://github.com/aaeisa1985/Eisax_Studio.git` — branch `main`, `origin/main` == local `main` at `82ed7ac` (clean tree, fully pushed). Only documentation changed after this verification.
+
+**Not re-run this pass:** browser-driven E2E, because the desktop browser session was disconnected. The 8-check browser E2E above was completed and recorded earlier against `next start`; the server-side flows it covered are also asserted by the automated suites.

@@ -2,6 +2,8 @@
 
 **Describe it. Create it. Own it.** — AI-first studio for professional documents and presentations, exported to real, editable Office formats.
 
+Repository: <https://github.com/aaeisa1985/Eisax_Studio.git> (branch `main`).
+
 ## Quick start (local development)
 
 Requirements: Node.js 20+ (built on Node 22). No external database server required — data is stored in an embedded Postgres (PGlite) at `./.data/`.
