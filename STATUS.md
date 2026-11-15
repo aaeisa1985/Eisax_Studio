@@ -118,3 +118,28 @@ Re-ran the full gate on a clean working tree (`git status` → 0 changes) after 
 - `npm test` (`vitest run`) → **4 test files, 41/41 tests passed** (`phase1` 14, `phase2-export` 6, `phase3-ai` 14, `phase5-hardening` 7), including PPTX `ppt/charts/chart1.xml` OOXML verification, DOCX chart table export, and 12-slide bilingual EISAX investor deck generation.
 - `npm run build` (`next build`) → exit 0 (14 routes built cleanly).
 - Live browser verification on `http://localhost:3100` → generated `"Create a premium 12-slide investor presentation for EISAX, with charts, bilingual"`, verified 12 unique slides, rendered Bar/Line/Pie SVG charts on canvas, and exported `/api/projects/<id>/export/pptx` (`200 OK`, 211,565 bytes).
+
+---
+
+## Milestone 4 — Phase 6: Lightweight Microsoft Office Alternative (WYSIWYG Word, Interactive Slide Canvas & Real DOCX/PPTX Round-Trip) (2026-11-15)
+
+**Architectural Shift (Office-first, AI-optional):**
+- **Dashboard & Blank Creation (`CreateProjectDialog.tsx`, `src/app/project-actions.ts`, `src/lib/projects/service.ts`):**
+  - Primary 1-click actions on `/dashboard` for **Blank Document**, **Blank Presentation**, and **Open `.docx` / `.pptx`** with zero AI prerequisite. Creation modal defaults to **Blank** (`Blank`, `Open File`, `Templates`, `AI (Optional)` tabs).
+- **Continuous WYSIWYG Word Processor (`src/components/WordProcessor.tsx`, `src/lib/document/tiptapSync.ts`, `src/app/globals.css`):**
+  - Built on TipTap v3 / ProseMirror continuous paper layout with sticky formatting ribbon: headings (P, H1–H4), Bold/Italic/Underline/Strikethrough, font size (`10pt`–`36pt`), text color picker, alignment (left/center/right/justify), bullet & ordered lists, blockquote, links, interactive resizable tables (add/delete row/column), embedded raster images via `/api/assets`, embedded charts, Page Layout controls (`A4`/`Letter`, `Portrait`/`Landscape`, `Normal`/`Narrow`/`Wide` margins), per-paragraph RTL/LTR toggle (`dir`), native Undo/Redo, and an optional AI drawer.
+- **Interactive 16:9 Slide Canvas Editor (`src/components/SlideCanvasEditor.tsx`, `src/lib/presentation/elements.ts`):**
+  - Pointer drag-and-resize 16:9 canvas for free-form positioned elements: text boxes (double-click inline editing), shapes (`rect`, `roundRect`, `ellipse`, `triangle`, `arrow`, `line`), raster images, and native charts. Includes element inspector (fill/border/text colors, font size, alignment, RTL/LTR), z-index layering (`Front`/`Fwd`/`Back`/`Bottom`), slide thumbnails sidebar, add/duplicate/reorder/delete blank slides, slide background color, speaker notes, and optional AI drawer.
+- **Real `.docx` & `.pptx` Import / Export & Fidelity Notices (`src/lib/import/xml.ts`, `src/lib/import/docx.ts`, `src/lib/import/pptx.ts`, `src/app/api/projects/import/route.ts`, `src/lib/export/docx.ts`, `src/lib/export/pptx.ts`):**
+  - `POST /api/projects/import` parses OOXML `.docx` and `.pptx` uploads (up to 20 MiB, ZIP magic-byte validated), extracts embedded PNG/JPEG/WebP media into workspace assets, and stores structured editable content + explicit `fidelityWarnings`.
+  - **Documented Fidelity Capabilities & Limitations:**
+    - Preserved across `.docx` import/export: headings (`Heading1..4`/`w:outlineLvl`), paragraphs, rich inline runs (bold, italic, underline, strike, color, font size), hyperlinks, bullet & numbered lists, tables, embedded PNG/JPEG/WebP images, page size/orientation/margins (`sectPr`), alignment, and RTL (`w:bidi`).
+    - Preserved across `.pptx` import/export: 16:9 slide geometry (`%`), slide backgrounds, positioned text boxes & shapes (`rect`, `roundRect`, `ellipse`, `triangle`, `line`, `arrow`), grouped shapes (`p:grpSp`), inline run styling, bullets, embedded PNG/JPEG/WebP pictures, speaker notes, z-order stacking, and RTL (`rtl="1"`).
+    - Surfaced via explicit in-editor `fidelityWarnings` banners (never silently ignored): Word headers/footers, footnotes/endnotes, comments, tracked deletions, OMML math (`m:oMath`), content controls (`w:sdt`), slide animations (`p:timing`), slide transitions (`p:transition`), SmartArt/graphicFrames (`dgm:`), and non-raster media (WMF/EMF/SVG).
+
+**Verified (post-final-edit):**
+- `npm run typecheck` (`tsc --noEmit`) → exit 0.
+- `npm test` (`vitest run`) → **5 test files, 47/47 tests passed** (`phase1` 14, `phase2-export` 6, `phase3-ai` 14, `phase5-hardening` 7, `phase6-office-roundtrip` 6 — real `.docx` and `.pptx` import → edit → export → reopen round-trips, fidelity warning detection, TipTap bidirectional sync, and legacy slide element conversion).
+- `npm run build` (`next build`) → exit 0 (15 routes including `/api/projects/import` built cleanly).
+- Real file round-trip check against browser-exported `Untitled_Document.docx`, `Untitled_Presentation.pptx`, and a real multi-slide `.pptx` verified exact slide count, content fidelity, editing, re-export, and reopening.
+- Live Chromium E2E on `http://localhost:3100`: verified Blank Document WYSIWYG typing (EN bold + Arabic RTL + table + bullet list) persistence + `.docx` download, Blank Presentation 16:9 canvas element placement/drag/shape/z-index/multi-slide persistence + `.pptx` download, and unauthenticated guard (`401`) on `POST /api/projects/import`. (Note: live UI `<input type="file">` upload trigger in the browser runner hit the IDE sandbox's 60s `browser_upload` permission dialog timeout, so file import round-trips were verified directly through `importDocx`/`importPptx` and `buildDocx`/`buildPptx` against those exact exported `.docx`/`.pptx` binaries.)

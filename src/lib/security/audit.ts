@@ -10,6 +10,8 @@ export async function audit(
     | "user.sign_out"
     | "project.delete"
     | "project.duplicate"
+    | "project.imported_docx"
+    | "project.imported_pptx"
     | "ai.quota_denied"
     | "export.pptx"
     | "export.docx"

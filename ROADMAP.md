@@ -43,3 +43,10 @@ Status legend: ☐ pending · ◐ in progress · ☑ done (see STATUS.md for evi
 - [x] Local S3-shaped storage adapter (`src/lib/storage`) + `assets` & `subscriptions` migrations
 - [x] Stripe webhook signature verification & checkout guard behind disabled `FEATURE_BILLING=false` flag (no charges)
 - [x] Dockerfile, compose, staging deploy docs (no production deploy)
+
+## Phase 6 — Genuine Microsoft Office Alternative (Word + PowerPoint + DOCX/PPTX Round-Trip) ☑
+- [x] Refocus UX on blank documents/presentations and opening existing `.docx` / `.pptx` files directly (AI is optional)
+- [x] Continuous WYSIWYG Word processor (`WordProcessor.tsx` on TipTap v3 + `.eisax-word-prose`) with rich formatting ribbon, tables, lists, images, links, page layout (A4/Letter, Portrait/Landscape, margins), per-paragraph RTL/LTR, and Undo/Redo
+- [x] Interactive 16:9 Slide Canvas editor (`SlideCanvasEditor.tsx`) with draggable/resizable text boxes, inline editing, shapes (`rect`, `roundRect`, `ellipse`, `triangle`, `line`, `arrow`), images, charts, z-index layering, speaker notes, and slide management
+- [x] Real OOXML `.docx` & `.pptx` import (`src/lib/import/docx.ts`, `src/lib/import/pptx.ts`) + `POST /api/projects/import` + round-trip export fidelity & explicit `fidelityWarnings`
+- [x] Automated DOCX/PPTX import → edit → export → reopen round-trip tests and live browser E2E verification

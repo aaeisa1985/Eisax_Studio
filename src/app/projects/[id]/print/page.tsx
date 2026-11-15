@@ -8,11 +8,51 @@ import { parseInlineSegments } from "@/lib/utils/inlineFormat";
 import { LOCALE_COOKIE, getLocale } from "@/lib/i18n";
 import { PrintButton } from "@/components/PrintButton";
 import { SlideChart } from "@/components/SlideChart";
-import type { EditorBlock, EditorSlide } from "@/components/ProjectEditor";
+import type {
+  DocumentBlock,
+  InlineRun,
+  PageLayout,
+  SlideElement,
+  SlideItem,
+} from "@/lib/validation/projects";
 
 export const dynamic = "force-dynamic";
 
-function InlineText({ text }: { text: string }) {
+function InlineRunsText({ text, runs }: { text: string; runs?: InlineRun[] }) {
+  if (runs && runs.length > 0) {
+    return (
+      <>
+        {runs.map((r, idx) => {
+          const style: React.CSSProperties = {
+            fontWeight: r.bold ? 700 : undefined,
+            fontStyle: r.italic ? "italic" : undefined,
+            textDecoration:
+              [r.underline ? "underline" : "", r.strike ? "line-through" : ""]
+                .filter(Boolean)
+                .join(" ") || undefined,
+            color: r.color ? `#${r.color.replace(/^#/, "")}` : undefined,
+            fontSize: r.fontSize ? `${r.fontSize}pt` : undefined,
+          };
+          if (r.href && /^https?:\/\//i.test(r.href)) {
+            return (
+              <a
+                key={idx}
+                href={r.href}
+                style={{ ...style, color: style.color ?? "#0284c7", textDecoration: "underline" }}
+              >
+                {r.text}
+              </a>
+            );
+          }
+          return (
+            <span key={idx} style={style}>
+              {r.text}
+            </span>
+          );
+        })}
+      </>
+    );
+  }
   const segments = parseInlineSegments(text);
   return (
     <>
@@ -25,7 +65,145 @@ function InlineText({ text }: { text: string }) {
   );
 }
 
-/** Print/PDF view: themed 16:9 slides and clean semantic document blocks for browser Save as PDF. */
+function PrintSlideElement({
+  el,
+  themeHexes,
+}: {
+  el: SlideElement;
+  themeHexes: { titleHex: string; accentHex: string; cardBgHex: string; borderHex: string; bodyHex: string; subtitleHex: string };
+}) {
+  const boxStyle: React.CSSProperties = {
+    position: "absolute",
+    left: `${el.x}%`,
+    top: `${el.y}%`,
+    width: `${el.w}%`,
+    height: `${el.h}%`,
+    zIndex: el.zIndex ?? 1,
+  };
+
+  if (el.kind === "image" && el.assetId) {
+    return (
+      <div style={boxStyle}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`/api/assets/${el.assetId}`}
+          alt={el.text || "Slide image"}
+          style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 4 }}
+        />
+      </div>
+    );
+  }
+
+  if (el.kind === "chart" && el.chart) {
+    return (
+      <div style={{ ...boxStyle, overflow: "hidden" }}>
+        <SlideChart
+          chart={el.chart}
+          accentHex={`#${themeHexes.accentHex}`}
+          goldHex="#D9A441"
+          titleColor={`#${themeHexes.titleHex}`}
+          textColor={`#${themeHexes.bodyHex}`}
+          mutedColor={`#${themeHexes.subtitleHex}`}
+          surfaceBg={`#${themeHexes.cardBgHex}`}
+          borderColor={`#${themeHexes.borderHex}`}
+          rtl={el.dir === "rtl"}
+        />
+      </div>
+    );
+  }
+
+  const fill = el.fillColor ? `#${el.fillColor.replace(/^#/, "")}` : undefined;
+  const border = el.borderColor ? `#${el.borderColor.replace(/^#/, "")}` : undefined;
+  const textColor = el.color ? `#${el.color.replace(/^#/, "")}` : `#${themeHexes.bodyHex}`;
+  const textAlign = el.align ?? (el.dir === "rtl" ? "right" : "left");
+
+  if (el.kind === "shape") {
+    const shape = el.shape ?? "rect";
+    const stroke = border ?? (fill ? "transparent" : `#${themeHexes.accentHex}`);
+    const sw = el.borderWidth ?? 2;
+    return (
+      <div style={boxStyle}>
+        {shape === "triangle" ? (
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <polygon
+              points="50,2 98,98 2,98"
+              fill={fill ?? "transparent"}
+              stroke={stroke}
+              strokeWidth={sw * 2}
+            />
+          </svg>
+        ) : shape === "line" ? (
+          <svg viewBox="0 0 100 20" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <line x1="0" y1="10" x2="100" y2="10" stroke={stroke === "transparent" ? `#${themeHexes.accentHex}` : stroke} strokeWidth={Math.max(2, sw * 2)} />
+          </svg>
+        ) : shape === "arrow" ? (
+          <svg viewBox="0 0 100 30" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <polygon
+              points="0,9 75,9 75,2 100,15 75,28 75,21 0,21"
+              fill={fill ?? `#${themeHexes.accentHex}`}
+              stroke={border ?? "none"}
+              strokeWidth={sw}
+            />
+          </svg>
+        ) : (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              backgroundColor: fill ?? "transparent",
+              border: stroke !== "transparent" ? `${sw}px solid ${stroke}` : undefined,
+              borderRadius: shape === "ellipse" ? "9999px" : shape === "roundRect" ? 10 : 0,
+            }}
+          />
+        )}
+        {(el.text || (el.runs && el.runs.length > 0)) && (
+          <div
+            dir={el.dir === "rtl" ? "rtl" : "ltr"}
+            style={{
+              position: "absolute",
+              inset: 4,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              textAlign: el.align ?? "center",
+              color: textColor,
+              fontSize: `${Math.max(9, (el.fontSize ?? 14) * 0.65)}px`,
+              fontWeight: el.bold ? 700 : 400,
+              fontStyle: el.italic ? "italic" : "normal",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            <InlineRunsText text={el.text ?? ""} runs={el.runs} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      dir={el.dir === "rtl" ? "rtl" : "ltr"}
+      style={{
+        ...boxStyle,
+        backgroundColor: fill,
+        border: border ? `${el.borderWidth ?? 1}px solid ${border}` : undefined,
+        color: textColor,
+        fontSize: `${Math.max(9, (el.fontSize ?? 16) * 0.65)}px`,
+        fontWeight: el.bold ? 700 : 400,
+        fontStyle: el.italic ? "italic" : "normal",
+        textAlign,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+        padding: 4,
+      }}
+    >
+      <InlineRunsText text={el.text ?? ""} runs={el.runs} />
+    </div>
+  );
+}
+
+/** Print/PDF view: themed 16:9 slides and rich document blocks for browser Save as PDF. */
 export default async function ProjectPrintPage(props: { params: Promise<{ id: string }> }) {
   const { id } = await props.params;
   const user = await getCurrentUser();
@@ -40,15 +218,30 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
 
   const content = project.content as {
     theme?: string;
-    slides?: EditorSlide[];
-    blocks?: EditorBlock[];
+    slides?: SlideItem[];
+    blocks?: DocumentBlock[];
+    pageLayout?: PageLayout;
   };
   const theme = resolveSlideTheme(content.theme);
+  const layout = content.pageLayout ?? { size: "a4", orientation: "portrait", margins: "normal" };
+  const docMaxWidth =
+    layout.orientation === "landscape"
+      ? 1060
+      : layout.size === "letter"
+        ? 816
+        : 794;
+  const docPaddingX = layout.margins === "narrow" ? 28 : layout.margins === "wide" ? 72 : 48;
 
   return (
     <div style={{ background: "#fff", color: "#17222e", minHeight: "100vh" }}>
       <PrintButton projectId={project.id} />
-      <main className="mx-auto max-w-4xl px-8 pb-20">
+      <main
+        className="mx-auto pb-20"
+        style={{
+          maxWidth: project.type === "document" ? docMaxWidth : 960,
+          paddingInline: project.type === "document" ? docPaddingX : 32,
+        }}
+      >
         <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }} dir="auto">
           {project.title}
         </h1>
@@ -60,6 +253,30 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
         {project.type === "presentation" ? (
           <div className="print-slides space-y-6">
             {(content.slides ?? []).map((s, i) => {
+              const hasFreeform = Array.isArray(s.elements);
+              const slideBg = s.bgColor ? `#${s.bgColor.replace(/^#/, "")}` : `#${theme.bgHex}`;
+              if (hasFreeform) {
+                const sorted = [...(s.elements ?? [])].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+                return (
+                  <section
+                    key={s.id}
+                    className="print-slide relative overflow-hidden rounded-xl border"
+                    style={{
+                      aspectRatio: "16 / 9",
+                      width: "100%",
+                      pageBreakInside: "avoid",
+                      breakInside: "avoid",
+                      background: slideBg,
+                      borderColor: `#${theme.borderHex}`,
+                    }}
+                  >
+                    {sorted.map((el) => (
+                      <PrintSlideElement key={el.id} el={el} themeHexes={theme} />
+                    ))}
+                  </section>
+                );
+              }
+
               const bullets = (s.bullets ?? []).filter((b) => b.trim().length > 0);
               const accent = s.accentShape ?? "bar";
               return (
@@ -69,7 +286,7 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                   style={{
                     pageBreakInside: "avoid",
                     breakInside: "avoid",
-                    background: accent === "card" ? `#${theme.cardBgHex}` : `#${theme.bgHex}`,
+                    background: accent === "card" ? `#${theme.cardBgHex}` : slideBg,
                     color: `#${theme.titleHex}`,
                     borderColor: `#${theme.borderHex}`,
                     minHeight: 260,
@@ -178,18 +395,24 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
         ) : (
           <article>
             {(content.blocks ?? []).map((b) => {
+              const alignStyle: React.CSSProperties = {
+                textAlign: b.align ?? (b.dir === "rtl" ? "right" : "left"),
+              };
+              const blockDir = b.dir === "rtl" ? "rtl" : "ltr";
+
               if (b.kind === "heading") {
                 return (
                   <h2
                     key={b.id}
                     style={{
-                      fontSize: b.level === 1 ? 22 : b.level === 3 ? 16 : 19,
+                      ...alignStyle,
+                      fontSize: b.level === 1 ? 22 : b.level === 3 ? 16 : b.level === 4 ? 14 : 19,
                       fontWeight: 700,
                       margin: "18px 0 6px",
                     }}
-                    dir="auto"
+                    dir={blockDir}
                   >
-                    {b.text}
+                    <InlineRunsText text={b.text} runs={b.runs} />
                   </h2>
                 );
               }
@@ -199,17 +422,18 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                   <Tag
                     key={b.id}
                     style={{
+                      ...alignStyle,
                       margin: "8px 0",
                       paddingInlineStart: 22,
                       fontSize: 13,
                       lineHeight: 1.8,
                       listStyleType: b.ordered ? "decimal" : "disc",
                     }}
-                    dir={b.dir === "rtl" ? "rtl" : "ltr"}
+                    dir={blockDir}
                   >
                     {(b.items ?? []).map((item, idx) => (
-                      <li key={idx} dir="auto">
-                        <InlineText text={item} />
+                      <li key={idx} dir={blockDir}>
+                        <InlineRunsText text={item} runs={b.listRuns?.[idx]} />
                       </li>
                     ))}
                   </Tag>
@@ -225,7 +449,7 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                       margin: "12px 0",
                       fontSize: 12,
                     }}
-                    dir={b.dir === "rtl" ? "rtl" : "ltr"}
+                    dir={blockDir}
                   >
                     <tbody>
                       {(b.rows ?? []).map((row, rIdx) => (
@@ -254,6 +478,7 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                   <blockquote
                     key={b.id}
                     style={{
+                      ...alignStyle,
                       borderInlineStart: "4px solid #00a89e",
                       background: "#f8fafc",
                       padding: "8px 14px",
@@ -262,15 +487,15 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                       color: "#334155",
                       fontSize: 13,
                     }}
-                    dir="auto"
+                    dir={blockDir}
                   >
-                    <InlineText text={b.text} />
+                    <InlineRunsText text={b.text} runs={b.runs} />
                   </blockquote>
                 );
               }
               if (b.kind === "link") {
                 return (
-                  <p key={b.id} style={{ fontSize: 13, margin: "6px 0" }} dir="auto">
+                  <p key={b.id} style={{ ...alignStyle, fontSize: 13, margin: "6px 0" }} dir={blockDir}>
                     <a
                       href={b.url && /^https?:\/\//i.test(b.url) ? b.url : "#"}
                       style={{ color: "#0284c7", textDecoration: "underline" }}
@@ -305,8 +530,8 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                 );
               }
               return (
-                <p key={b.id} style={{ fontSize: 13, lineHeight: 1.9, margin: "6px 0" }} dir="auto">
-                  <InlineText text={b.text} />
+                <p key={b.id} style={{ ...alignStyle, fontSize: 13, lineHeight: 1.9, margin: "6px 0" }} dir={blockDir}>
+                  <InlineRunsText text={b.text} runs={b.runs} />
                 </p>
               );
             })}

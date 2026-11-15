@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createProjectAction, createProjectFromTemplateAction } from "@/app/project-actions";
 import { aiCreateProjectFromOutlineAction, aiPreviewOutlineAction } from "@/app/ai-actions";
@@ -18,8 +18,9 @@ export function CreateProjectDialog({
   initialUsage?: { used: number; limit: number };
 }) {
   const router = useRouter();
+  const quickImportRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"ai" | "templates" | "blank">("ai");
+  const [mode, setMode] = useState<"blank" | "open" | "templates" | "ai">("blank");
   const [type, setType] = useState<"presentation" | "document">("presentation");
   const [language, setLanguage] = useState<"en" | "ar">(locale === "ar" ? "ar" : "en");
   const [prompt, setPrompt] = useState("");
@@ -28,7 +29,9 @@ export function CreateProjectDialog({
   const [length, setLength] = useState<"short" | "medium" | "long">("medium");
   const [theme, setTheme] = useState<SlideThemeId>("default");
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [importError, setImportError] = useState<string | undefined>();
   const [outline, setOutline] = useState<Outline | null>(null);
   const [outlineTitle, setOutlineTitle] = useState("");
   const [providerDemo, setProviderDemo] = useState(true);
@@ -40,7 +43,34 @@ export function CreateProjectDialog({
   function resetWizard() {
     setOutline(null);
     setError(undefined);
+    setImportError(undefined);
     setBusy(false);
+  }
+
+  async function handleImportFile(file: File) {
+    setImporting(true);
+    setImportError(undefined);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/projects/import", { method: "POST", body: fd });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        projectId?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.ok || !data.projectId) {
+        setImportError(data.error ?? "import_failed");
+        setImporting(false);
+        return;
+      }
+      setOpen(false);
+      resetWizard();
+      router.push(`/projects/${data.projectId}`);
+    } catch {
+      setImportError("import_failed");
+      setImporting(false);
+    }
   }
 
   async function handleGenerateOutline(e: React.FormEvent) {
@@ -108,9 +138,61 @@ export function CreateProjectDialog({
 
   return (
     <>
-      <button type="button" className="btn btn-primary text-sm" onClick={() => setOpen(true)}>
-        + {tr("newProject")}
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <form action={createProjectAction}>
+          <input type="hidden" name="type" value="document" />
+          <input type="hidden" name="language" value={locale} />
+          <input type="hidden" name="blank" value="1" />
+          <button type="submit" className="btn btn-primary text-sm">
+            📄 {ar ? "مستند فارغ" : "Blank Document"}
+          </button>
+        </form>
+
+        <form action={createProjectAction}>
+          <input type="hidden" name="type" value="presentation" />
+          <input type="hidden" name="language" value={locale} />
+          <input type="hidden" name="blank" value="1" />
+          <button type="submit" className="btn btn-primary text-sm">
+            ▦ {ar ? "عرض فارغ" : "Blank Presentation"}
+          </button>
+        </form>
+
+        <input
+          ref={quickImportRef}
+          type="file"
+          accept=".docx,.pptx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          className="sr-only"
+          aria-label={ar ? "فتح ملف Word أو PowerPoint" : "Open .docx or .pptx file"}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void handleImportFile(f);
+          }}
+        />
+        <button
+          type="button"
+          disabled={importing}
+          className="btn btn-ghost text-sm"
+          onClick={() => quickImportRef.current?.click()}
+        >
+          📂 {importing ? (ar ? "جارٍ الاستيراد..." : "Opening...") : ar ? "فتح .docx / .pptx" : "Open .docx / .pptx"}
+        </button>
+
+        <button
+          type="button"
+          className="btn btn-ghost text-sm"
+          onClick={() => setOpen(true)}
+        >
+          + {ar ? "المزيد (قوالب / AI)" : "Templates / AI"}
+        </button>
+      </div>
+
+      {importError && !open && (
+        <p role="alert" className="mt-2 w-full rounded-lg border p-2.5 text-xs" style={{ borderColor: "#4a2430", color: "#ff8b8b" }}>
+          {ar ? "تعذّر استيراد الملف: " : "Import failed: "} {importError}
+        </p>
+      )}
+
       {open && (
         <div
           role="dialog"
@@ -149,17 +231,28 @@ export function CreateProjectDialog({
               </button>
             </div>
 
-            <div className="mb-5 grid grid-cols-3 gap-1.5 rounded-xl border p-1" style={{ borderColor: "var(--border)" }}>
+            <div className="mb-5 grid grid-cols-4 gap-1.5 rounded-xl border p-1" style={{ borderColor: "var(--border)" }}>
               <button
                 type="button"
-                className={`rounded-lg py-2 text-xs font-semibold transition-colors ${mode === "ai" ? "btn-primary" : ""}`}
-                style={mode === "ai" ? undefined : { color: "var(--text-dim)" }}
+                className={`rounded-lg py-2 text-xs font-semibold transition-colors ${mode === "blank" ? "btn-primary" : ""}`}
+                style={mode === "blank" ? undefined : { color: "var(--text-dim)" }}
                 onClick={() => {
-                  setMode("ai");
+                  setMode("blank");
                   setError(undefined);
                 }}
               >
-                ✨ {ar ? "بالذكاء الاصطناعي" : "Create with AI"}
+                + {ar ? "فارغ" : "Blank"}
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg py-2 text-xs font-semibold transition-colors ${mode === "open" ? "btn-primary" : ""}`}
+                style={mode === "open" ? undefined : { color: "var(--text-dim)" }}
+                onClick={() => {
+                  setMode("open");
+                  setError(undefined);
+                }}
+              >
+                📂 {ar ? "فتح ملف" : "Open File"}
               </button>
               <button
                 type="button"
@@ -174,18 +267,50 @@ export function CreateProjectDialog({
               </button>
               <button
                 type="button"
-                className={`rounded-lg py-2 text-xs font-semibold transition-colors ${mode === "blank" ? "btn-primary" : ""}`}
-                style={mode === "blank" ? undefined : { color: "var(--text-dim)" }}
+                className={`rounded-lg py-2 text-xs font-semibold transition-colors ${mode === "ai" ? "btn-primary" : ""}`}
+                style={mode === "ai" ? undefined : { color: "var(--text-dim)" }}
                 onClick={() => {
-                  setMode("blank");
+                  setMode("ai");
                   setError(undefined);
                 }}
               >
-                + {ar ? "فارغ" : "Blank"}
+                ✨ {ar ? "AI (اختياري)" : "AI (Optional)"}
               </button>
             </div>
 
-            {mode === "templates" ? (
+            {mode === "open" ? (
+              <div className="space-y-4">
+                <p className="text-xs leading-relaxed" style={{ color: "var(--text-dim)" }}>
+                  {ar
+                    ? "افتح ملف Word (.docx) أو PowerPoint (.pptx) موجودًا لتعديله وحفظه وإعادة تصديره. يتم الحفاظ على النصوص والتنسيق والجداول والصور والأشكال واتجاه العربية RTL وتنبيهك بأي عناصر غير مدعومة."
+                    : "Open an existing Word (.docx) or PowerPoint (.pptx) file to edit, save, and export back. Text, formatting, tables, images, shapes, and RTL direction are preserved, with explicit notices for any unsupported features."}
+                </p>
+                <label className="card card-hover flex cursor-pointer flex-col items-center justify-center gap-2 border-dashed p-8 text-center">
+                  <span className="text-2xl">📂</span>
+                  <span className="text-sm font-semibold">
+                    {importing
+                      ? ar ? "جارٍ الاستيراد..." : "Importing Office file..."
+                      : ar ? "اختر ملف .docx أو .pptx (حتى 20 MB)" : "Choose .docx or .pptx file (up to 20 MB)"}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".docx,.pptx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    disabled={importing}
+                    className="sr-only"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (f) void handleImportFile(f);
+                    }}
+                  />
+                </label>
+                {importError && (
+                  <p role="alert" className="rounded-lg border p-2.5 text-xs" style={{ borderColor: "#4a2430", color: "#ff8b8b" }}>
+                    {importError}
+                  </p>
+                )}
+              </div>
+            ) : mode === "templates" ? (
               <div className="space-y-3">
                 <p className="text-xs" style={{ color: "var(--text-dim)" }}>
                   {ar ? "ابدأ فورًا من قالب منظم قابل للتعديل والتصدير:" : "Start immediately from a structured, editable template:"}
@@ -215,30 +340,30 @@ export function CreateProjectDialog({
               </div>
             ) : mode === "blank" ? (
               <form action={createProjectAction} className="space-y-4">
+                <input type="hidden" name="blank" value="1" />
                 <div>
                   <label htmlFor="np-title" className="mb-1 block text-sm font-medium">
-                    {tr("title")}
+                    {tr("title")} ({ar ? "اختياري" : "optional"})
                   </label>
                   <input
                     id="np-title"
                     name="title"
-                    required
                     maxLength={200}
                     dir="auto"
                     className="input"
-                    placeholder={ar ? "عنوان المشروع" : "Project title"}
+                    placeholder={ar ? "بدون عنوان (افتراضي)" : "Untitled (leave blank for default)"}
                   />
                 </div>
                 <div>
                   <span className="mb-1 block text-sm font-medium">{ar ? "النوع" : "Type"}</span>
                   <div className="flex gap-2">
                     <label className="card flex flex-1 cursor-pointer items-center gap-2 p-3 text-sm">
-                      <input type="radio" name="type" value="presentation" defaultChecked />
-                      ▦ {tr("presentation")}
+                      <input type="radio" name="type" value="document" defaultChecked />
+                      📄 {tr("document")}
                     </label>
                     <label className="card flex flex-1 cursor-pointer items-center gap-2 p-3 text-sm">
-                      <input type="radio" name="type" value="document" />
-                      📄 {tr("document")}
+                      <input type="radio" name="type" value="presentation" />
+                      ▦ {tr("presentation")}
                     </label>
                   </div>
                 </div>

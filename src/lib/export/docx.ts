@@ -5,25 +5,95 @@ import {
   ExternalHyperlink,
   HeadingLevel,
   ImageRun,
+  LevelFormat,
   Packer,
+  PageOrientation,
   Paragraph,
   ShadingType,
   Table,
   TableCell,
   TableRow,
   TextRun,
+  UnderlineType,
   WidthType,
 } from "docx";
-import { documentContentSchema } from "@/lib/validation/projects";
+import {
+  documentContentSchema,
+  type InlineRun,
+  type TextAlign,
+} from "@/lib/validation/projects";
 import { parseInlineSegments } from "@/lib/utils/inlineFormat";
 import type { AssetResolver } from "@/lib/storage/assets";
 
 export type DocxResult = { fileName: string; data: Buffer };
 
-function inlineRuns(text: string, rtl: boolean, color?: string): TextRun[] {
-  const segments = parseInlineSegments(text || " ");
+type DocxRunChild = TextRun | ExternalHyperlink;
+
+function toAlignment(align: TextAlign | undefined, rtl: boolean) {
+  switch (align) {
+    case "center":
+      return AlignmentType.CENTER;
+    case "right":
+      return AlignmentType.RIGHT;
+    case "justify":
+      return AlignmentType.JUSTIFIED;
+    case "left":
+      return AlignmentType.LEFT;
+    default:
+      return rtl ? AlignmentType.RIGHT : AlignmentType.LEFT;
+  }
+}
+
+function cleanColor(hex: string | undefined): string | undefined {
+  if (!hex) return undefined;
+  const c = hex.replace(/^#/, "").trim();
+  return /^[0-9a-fA-F]{6}$/.test(c) ? c.toUpperCase() : undefined;
+}
+
+function makeTextRun(run: InlineRun, rtl: boolean, fallbackColor?: string): TextRun {
+  return new TextRun({
+    text: run.text || " ",
+    bold: run.bold,
+    italics: run.italic,
+    underline: run.underline ? { type: UnderlineType.SINGLE } : undefined,
+    strike: run.strike,
+    color: cleanColor(run.color) ?? fallbackColor,
+    size: run.fontSize ? Math.round(run.fontSize * 2) : undefined,
+    rightToLeft: rtl,
+  });
+}
+
+function blockRunsToChildren(
+  runs: InlineRun[] | undefined,
+  fallbackText: string,
+  rtl: boolean,
+  fallbackColor?: string,
+): DocxRunChild[] {
+  if (runs && runs.length > 0) {
+    return runs.map((r) => {
+      if (r.href && /^https?:\/\//i.test(r.href)) {
+        return new ExternalHyperlink({
+          link: r.href,
+          children: [
+            new TextRun({
+              text: r.text || r.href,
+              style: "Hyperlink",
+              bold: r.bold,
+              italics: r.italic,
+              underline: r.underline ? { type: UnderlineType.SINGLE } : undefined,
+              color: cleanColor(r.color) ?? "0284C7",
+              rightToLeft: rtl,
+            }),
+          ],
+        });
+      }
+      return makeTextRun(r, rtl, fallbackColor);
+    });
+  }
+
+  const segments = parseInlineSegments(fallbackText || " ");
   if (segments.length === 0) {
-    return [new TextRun({ text: " ", rightToLeft: rtl, color })];
+    return [new TextRun({ text: " ", rightToLeft: rtl, color: fallbackColor })];
   }
   return segments.map(
     (seg) =>
@@ -32,14 +102,14 @@ function inlineRuns(text: string, rtl: boolean, color?: string): TextRun[] {
         bold: seg.bold,
         italics: seg.italic,
         rightToLeft: rtl,
-        color,
+        color: fallbackColor,
       }),
   );
 }
 
 /**
- * Build a real DOCX with semantic headings, paragraphs, lists, tables, quotes,
- * and links (native, editable). RTL blocks use bidi so Office renders them correctly.
+ * Build a real DOCX with semantic headings, rich inline runs, lists, tables,
+ * quotes, images, links, page layout, and charts. RTL blocks emit <w:bidi/>.
  */
 export async function buildDocx(
   title: string,
@@ -49,19 +119,27 @@ export async function buildDocx(
   const parsed = documentContentSchema.safeParse(content);
   if (!parsed.success) return { error: "invalid_content" };
 
-  const titleRtl = /[\u0600-\u06FF]/.test(title);
-  const children: Array<Paragraph | Table> = [
-    new Paragraph({
-      text: title,
-      heading: HeadingLevel.TITLE,
-      bidirectional: titleRtl,
-      alignment: titleRtl ? AlignmentType.RIGHT : AlignmentType.LEFT,
-    }),
-  ];
+  const blocks = parsed.data.blocks;
+  const pageLayout = parsed.data.pageLayout;
 
-  for (const block of parsed.data.blocks) {
+  // Include document title header paragraph only when the document does not already start with Heading 1
+  const firstBlock = blocks[0];
+  const startsWithH1 = firstBlock?.kind === "heading" && (firstBlock.level ?? 2) === 1;
+  const titleRtl = /[\u0600-\u06FF]/.test(title);
+  const children: Array<Paragraph | Table> = startsWithH1
+    ? []
+    : [
+        new Paragraph({
+          text: title,
+          heading: HeadingLevel.TITLE,
+          bidirectional: titleRtl,
+          alignment: titleRtl ? AlignmentType.RIGHT : AlignmentType.LEFT,
+        }),
+      ];
+
+  for (const block of blocks) {
     const rtl = block.dir === "rtl";
-    const alignment = rtl ? AlignmentType.RIGHT : AlignmentType.LEFT;
+    const alignment = toAlignment(block.align, rtl);
 
     if (block.kind === "heading") {
       const level =
@@ -69,10 +147,16 @@ export async function buildDocx(
           ? HeadingLevel.HEADING_1
           : block.level === 3
             ? HeadingLevel.HEADING_3
-            : HeadingLevel.HEADING_2;
+            : block.level === 4
+              ? HeadingLevel.HEADING_4
+              : block.level === 5
+                ? HeadingLevel.HEADING_5
+                : block.level === 6
+                  ? HeadingLevel.HEADING_6
+                  : HeadingLevel.HEADING_2;
       children.push(
         new Paragraph({
-          text: block.text || " ",
+          children: blockRunsToChildren(block.runs, block.text, rtl),
           heading: level,
           bidirectional: rtl,
           alignment,
@@ -82,11 +166,13 @@ export async function buildDocx(
       const items = (block.items ?? []).filter((item) => item.trim().length > 0);
       const effectiveItems = items.length > 0 ? items : [block.text || " "];
       effectiveItems.forEach((item, idx) => {
-        const prefix = block.ordered ? `${idx + 1}. ` : "";
+        const itemRuns = block.listRuns?.[idx];
         children.push(
           new Paragraph({
-            children: inlineRuns(`${prefix}${item}`, rtl),
-            bullet: block.ordered ? undefined : { level: 0 },
+            children: blockRunsToChildren(itemRuns, item, rtl),
+            ...(block.ordered
+              ? { numbering: { reference: "eisax-ordered", level: 0 } }
+              : { bullet: { level: 0 } }),
             bidirectional: rtl,
             alignment,
           }),
@@ -134,7 +220,7 @@ export async function buildDocx(
     } else if (block.kind === "quote") {
       children.push(
         new Paragraph({
-          children: inlineRuns(block.text || " ", rtl, "44586E"),
+          children: blockRunsToChildren(block.runs, block.text || " ", rtl, "44586E"),
           bidirectional: rtl,
           alignment,
           indent: rtl ? { right: 420 } : { left: 420 },
@@ -163,7 +249,7 @@ export async function buildDocx(
       if (block.text.trim()) {
         children.push(
           new Paragraph({
-            children: inlineRuns(block.text, rtl, "5A6A7A"),
+            children: blockRunsToChildren(block.runs, block.text, rtl, "5A6A7A"),
             bidirectional: rtl,
             alignment: AlignmentType.CENTER,
           }),
@@ -240,7 +326,7 @@ export async function buildDocx(
       } else {
         children.push(
           new Paragraph({
-            children: inlineRuns(label, rtl),
+            children: blockRunsToChildren(block.runs, label, rtl),
             bidirectional: rtl,
             alignment,
           }),
@@ -249,7 +335,7 @@ export async function buildDocx(
     } else {
       children.push(
         new Paragraph({
-          children: inlineRuns(block.text || " ", rtl),
+          children: blockRunsToChildren(block.runs, block.text || " ", rtl),
           bidirectional: rtl,
           alignment,
         }),
@@ -257,13 +343,51 @@ export async function buildDocx(
     }
   }
 
+  const baseW = pageLayout?.size === "letter" ? 12240 : 11906;
+  const baseH = pageLayout?.size === "letter" ? 15840 : 16838;
+  const landscape = pageLayout?.orientation === "landscape";
+  const marginTwips =
+    pageLayout?.margins === "narrow" ? 720 : pageLayout?.margins === "wide" ? 2160 : 1440;
+
   const doc = new Document({
-    creator: "EISAX Studio",
-    title,
-    sections: [{ children }],
+    numbering: {
+      config: [
+        {
+          reference: "eisax-ordered",
+          levels: [
+            {
+              level: 0,
+              format: LevelFormat.DECIMAL,
+              text: "%1.",
+              alignment: AlignmentType.START,
+            },
+          ],
+        },
+      ],
+    },
+    sections: [
+      {
+        properties: {
+          page: {
+            size: {
+              width: landscape ? baseH : baseW,
+              height: landscape ? baseW : baseH,
+              orientation: landscape ? PageOrientation.LANDSCAPE : PageOrientation.PORTRAIT,
+            },
+            margin: {
+              top: marginTwips,
+              bottom: marginTwips,
+              left: marginTwips,
+              right: marginTwips,
+            },
+          },
+        },
+        children,
+      },
+    ],
   });
 
   const data = await Packer.toBuffer(doc);
   const safeTitle = title.replace(/[^\p{L}\p{N} _-]+/gu, "").trim() || "document";
-  return { fileName: `${safeTitle.slice(0, 60)}.docx`, data };
+  return { fileName: `${safeTitle.slice(0, 60)}.docx`, data: Buffer.from(data) };
 }

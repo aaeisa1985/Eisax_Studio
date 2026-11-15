@@ -121,20 +121,23 @@ export async function createProject(
   userId: string,
   workspaceId: string,
   input: unknown,
+  opts?: { blank?: boolean },
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const parsed = createProjectSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "invalid_input" };
 
+  const dir = parsed.data.language === "ar" ? "rtl" : "ltr";
   const content =
     parsed.data.type === "presentation"
       ? presentationContentSchema.parse({
           slides: [
             {
               id: crypto.randomUUID(),
-              title: parsed.data.title,
+              title: opts?.blank ? "" : parsed.data.title,
               subtitle: "",
+              elements: opts?.blank ? [] : undefined,
               notes: "",
-              dir: parsed.data.language === "ar" ? "rtl" : "ltr",
+              dir,
             },
           ],
         })
@@ -142,10 +145,10 @@ export async function createProject(
           blocks: [
             {
               id: crypto.randomUUID(),
-              kind: "heading",
-              level: 1,
-              text: parsed.data.title,
-              dir: parsed.data.language === "ar" ? "rtl" : "ltr",
+              kind: opts?.blank ? "paragraph" : "heading",
+              ...(opts?.blank ? {} : { level: 1 }),
+              text: opts?.blank ? "" : parsed.data.title,
+              dir,
             },
           ],
         });

@@ -41,11 +41,28 @@ export async function createProjectAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const workspaceId = await getPrimaryWorkspaceId(user.id);
   if (!workspaceId) redirect("/dashboard?error=noworkspace");
-  const result = await createProject(user.id, workspaceId!, {
-    title: formData.get("title"),
-    type: formData.get("type"),
-    language: formData.get("language") ?? "en",
-  });
+  const type = formData.get("type") === "document" ? "document" : "presentation";
+  const language = formData.get("language") === "ar" ? "ar" : "en";
+  const rawTitle = String(formData.get("title") ?? "").trim();
+  const defaultTitle =
+    type === "document"
+      ? language === "ar"
+        ? "مستند بدون عنوان"
+        : "Untitled Document"
+      : language === "ar"
+        ? "عرض تقديمي بدون عنوان"
+        : "Untitled Presentation";
+  const isBlank = formData.get("blank") === "1" || rawTitle === "";
+  const result = await createProject(
+    user.id,
+    workspaceId!,
+    {
+      title: rawTitle || defaultTitle,
+      type,
+      language,
+    },
+    { blank: isBlank },
+  );
   if (!result.ok) redirect("/dashboard?error=create");
   revalidatePath("/dashboard");
   redirect(`/projects/${result.id}`);

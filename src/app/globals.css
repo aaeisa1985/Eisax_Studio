@@ -287,3 +287,120 @@ details.faq[open] .faq-chevron {
 .faq-chevron {
   transition: transform 150ms ease;
 }
+
+/* ---------- Continuous WYSIWYG Word Processor (.eisax-word-prose) ---------- */
+.eisax-word-prose {
+  font-size: 11pt;
+  line-height: 1.65;
+  color: #17222e;
+}
+.eisax-word-prose .ProseMirror {
+  outline: none;
+  min-height: 100%;
+}
+.eisax-word-prose h1 {
+  font-size: 1.85rem;
+  font-weight: 800;
+  line-height: 1.25;
+  margin-top: 1.2rem;
+  margin-bottom: 0.65rem;
+  color: #0b1420;
+}
+.eisax-word-prose h2 {
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-top: 1.05rem;
+  margin-bottom: 0.5rem;
+  color: #0e2038;
+}
+.eisax-word-prose h3 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin-top: 0.9rem;
+  margin-bottom: 0.4rem;
+  color: #132c4a;
+}
+.eisax-word-prose h4 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-top: 0.75rem;
+  margin-bottom: 0.35rem;
+  color: #1c3a5e;
+}
+.eisax-word-prose p {
+  margin-bottom: 0.65rem;
+}
+.eisax-word-prose ul {
+  list-style-type: disc;
+  padding-inline-start: 1.6rem;
+  margin-bottom: 0.75rem;
+}
+.eisax-word-prose ol {
+  list-style-type: decimal;
+  padding-inline-start: 1.6rem;
+  margin-bottom: 0.75rem;
+}
+.eisax-word-prose li {
+  margin-bottom: 0.25rem;
+}
+.eisax-word-prose blockquote {
+  border-inline-start: 4px solid #0284c7;
+  background: #f1f5f9;
+  padding: 0.6rem 1rem;
+  margin: 0.85rem 0;
+  border-radius: 0.35rem;
+  font-style: italic;
+  color: #334155;
+}
+.eisax-word-prose a {
+  color: #0284c7;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.eisax-word-prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 0.85rem 0;
+  display: block;
+}
+.eisax-word-prose img.ProseMirror-selectednode {
+  outline: 2px solid #0ea5e9;
+  outline-offset: 2px;
+}
+.eisax-word-prose table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.9rem 0;
+  table-layout: fixed;
+}
+.eisax-word-prose th,
+.eisax-word-prose td {
+  border: 1px solid #cbd5e1;
+  padding: 0.45rem 0.65rem;
+  vertical-align: top;
+  min-width: 2.5rem;
+  position: relative;
+}
+.eisax-word-prose th {
+  background: #f1f5f9;
+  font-weight: 700;
+  color: #0f172a;
+}
+.eisax-word-prose .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(14, 165, 233, 0.14);
+  pointer-events: none;
+}
+.eisax-word-prose p.is-editor-empty:first-child::before {
+  color: #94a3b8;
+  content: attr(data-placeholder);
+  float: inline-start;
+  height: 0;
+  pointer-events: none;
+}

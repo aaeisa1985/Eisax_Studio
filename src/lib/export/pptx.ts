@@ -26,7 +26,171 @@ export async function buildPptx(
 
   for (const slide of parsed.data.slides) {
     const s = pptx.addSlide();
-    s.background = { color: theme.bgHex };
+    const bgHex =
+      slide.bgColor && /^[0-9a-fA-F]{6}$/.test(slide.bgColor.replace(/^#/, ""))
+        ? slide.bgColor.replace(/^#/, "").toUpperCase()
+        : theme.bgHex;
+    s.background = { color: bgHex };
+
+    if (slide.elements && slide.elements.length > 0) {
+      const sorted = [...slide.elements].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+      const shapeMap = {
+        rect: pptx.ShapeType.rect,
+        roundRect: pptx.ShapeType.roundRect,
+        ellipse: pptx.ShapeType.ellipse,
+        triangle: pptx.ShapeType.triangle,
+        line: pptx.ShapeType.line,
+        arrow: pptx.ShapeType.rightArrow,
+      } as const;
+      const cleanHex = (c: string | undefined) => {
+        if (!c) return undefined;
+        const stripped = c.replace(/^#/, "").trim();
+        return /^[0-9a-fA-F]{6}$/.test(stripped) ? stripped.toUpperCase() : undefined;
+      };
+
+      for (const el of sorted) {
+        const x = (el.x / 100) * 10;
+        const y = (el.y / 100) * 5.625;
+        const w = Math.max(0.05, (el.w / 100) * 10);
+        const h = Math.max(0.05, (el.h / 100) * 5.625);
+        const elRtl = el.dir === "rtl" || (el.dir !== "ltr" && slide.dir === "rtl");
+        const elAlign =
+          el.align === "center" || el.align === "right" || el.align === "left" || el.align === "justify"
+            ? el.align
+            : elRtl
+              ? "right"
+              : "left";
+        const fillHex = cleanHex(el.fillColor);
+        const borderHex = cleanHex(el.borderColor);
+        const textHex = cleanHex(el.color) ?? theme.bodyHex;
+
+        if (el.kind === "image" && el.assetId && resolveAsset) {
+          const asset = await resolveAsset(el.assetId);
+          if (asset) {
+            const b64 = asset.data.toString("base64");
+            s.addImage({
+              data: `data:${asset.mimeType};base64,${b64}`,
+              x,
+              y,
+              w,
+              h,
+              sizing: { type: "contain", w, h },
+            });
+          }
+        } else if (el.kind === "chart" && el.chart) {
+          const ch = el.chart;
+          const chartType =
+            ch.kind === "line"
+              ? pptx.ChartType.line
+              : ch.kind === "pie"
+                ? pptx.ChartType.pie
+                : pptx.ChartType.bar;
+          s.addChart(
+            chartType,
+            [{ name: ch.title, labels: ch.categories, values: ch.values }],
+            {
+              x,
+              y,
+              w,
+              h,
+              showTitle: true,
+              title: ch.unit ? `${ch.title} (${ch.unit})` : ch.title,
+              titleColor: theme.titleHex,
+              titleFontSize: 11,
+              chartColors: [theme.accentHex, "D9A441", theme.subtitleHex, "38BDF8", "10B981"],
+              showLegend: ch.kind === "pie",
+              legendPos: "b",
+              legendColor: theme.bodyHex,
+              catAxisLabelColor: theme.subtitleHex,
+              valAxisLabelColor: theme.subtitleHex,
+              dataLabelColor: theme.bodyHex,
+              showValue: ch.kind !== "pie",
+              showPercent: ch.kind === "pie",
+            },
+          );
+        } else if (el.kind === "shape") {
+          const st = shapeMap[el.shape ?? "rect"];
+          const opts = {
+            x,
+            y,
+            w,
+            h,
+            ...(fillHex ? { fill: { color: fillHex } } : {}),
+            ...(borderHex ? { line: { color: borderHex, width: el.borderWidth ?? 1.5 } } : {}),
+          };
+          if (el.text && el.text.trim() && el.shape !== "line") {
+            s.addText(el.text, {
+              ...opts,
+              shape: st,
+              fontSize: el.fontSize ?? 16,
+              bold: el.bold,
+              italic: el.italic,
+              underline: el.underline ? { style: "sng" } : undefined,
+              color: textHex,
+              align: elAlign,
+              valign: el.valign ?? "middle",
+              rtlMode: elRtl,
+            });
+          } else {
+            s.addShape(st, opts);
+          }
+        } else {
+          const runsMatchText =
+            el.runs &&
+            el.runs.length > 0 &&
+            (!el.text || el.runs.map((r) => r.text).join("").trim() === el.text.trim());
+          const rawRuns = runsMatchText
+            ? el.runs!
+            : [{ text: el.text || " " }];
+
+          const textRuns: Array<{
+            text: string;
+            options: {
+              bold?: boolean;
+              italic?: boolean;
+              underline?: { style: "sng" };
+              color: string;
+              fontSize: number;
+              breakLine?: boolean;
+            };
+          }> = [];
+
+          rawRuns.forEach((r) => {
+            const parts = r.text.split("\n");
+            parts.forEach((part, pIdx) => {
+              textRuns.push({
+                text: part || (pIdx === 0 && parts.length === 1 ? " " : ""),
+                options: {
+                  bold: r.bold ?? el.bold,
+                  italic: r.italic ?? el.italic,
+                  underline: r.underline ?? el.underline ? { style: "sng" as const } : undefined,
+                  color: cleanHex(r.color) ?? textHex,
+                  fontSize: r.fontSize ?? el.fontSize ?? 18,
+                  breakLine: pIdx < parts.length - 1,
+                },
+              });
+            });
+          });
+
+          s.addText(textRuns, {
+            x,
+            y,
+            w,
+            h,
+            align: elAlign,
+            valign: el.valign ?? "top",
+            rtlMode: elRtl,
+            ...(fillHex ? { fill: { color: fillHex } } : {}),
+            ...(borderHex ? { line: { color: borderHex, width: el.borderWidth ?? 1 } } : {}),
+          });
+        }
+      }
+
+      if (slide.notes.trim().length > 0) {
+        s.addNotes(slide.notes);
+      }
+      continue;
+    }
 
     const rtl = slide.dir === "rtl";
     const align = rtl ? "right" : "left";

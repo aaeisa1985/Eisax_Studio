@@ -65,9 +65,74 @@ export const chartDataSchema = z
   });
 export type ChartData = z.infer<typeof chartDataSchema>;
 
+export const safeUrlSchema = z
+  .string()
+  .trim()
+  .max(2000)
+  .refine(
+    (val) => val === "" || /^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(val),
+    "URL must start with http:// or https://",
+  );
+
+export const textAlignSchema = z.enum(["left", "center", "right", "justify"]);
+export type TextAlign = z.infer<typeof textAlignSchema>;
+
+export const inlineRunSchema = z.object({
+  text: z.string().max(20000),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
+  strike: z.boolean().optional(),
+  color: z.string().max(20).optional(),
+  fontSize: z.number().min(8).max(72).optional(),
+  href: safeUrlSchema.optional(),
+});
+export type InlineRun = z.infer<typeof inlineRunSchema>;
+
+export const slideElementKindSchema = z.enum(["text", "shape", "image", "chart"]);
+export type SlideElementKind = z.infer<typeof slideElementKindSchema>;
+
+export const slideShapeTypeSchema = z.enum([
+  "rect",
+  "roundRect",
+  "ellipse",
+  "triangle",
+  "line",
+  "arrow",
+]);
+export type SlideShapeType = z.infer<typeof slideShapeTypeSchema>;
+
+export const slideElementSchema = z.object({
+  id: z.string().min(1),
+  kind: slideElementKindSchema,
+  x: z.number().min(-25).max(125),
+  y: z.number().min(-25).max(125),
+  w: z.number().min(0.5).max(150),
+  h: z.number().min(0.5).max(150),
+  zIndex: z.number().int().min(0).max(1000).default(1),
+  rotation: z.number().min(-360).max(360).optional(),
+  text: z.string().max(20000).optional(),
+  runs: z.array(inlineRunSchema).max(200).optional(),
+  fontSize: z.number().min(8).max(120).optional(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
+  color: z.string().max(20).optional(),
+  align: textAlignSchema.optional(),
+  valign: z.enum(["top", "middle", "bottom"]).optional(),
+  dir: z.enum(["ltr", "rtl", "auto"]).optional(),
+  shape: slideShapeTypeSchema.optional(),
+  fillColor: z.string().max(20).optional(),
+  borderColor: z.string().max(20).optional(),
+  borderWidth: z.number().min(0).max(20).optional(),
+  assetId: z.string().uuid().optional(),
+  chart: chartDataSchema.optional(),
+});
+export type SlideElement = z.infer<typeof slideElementSchema>;
+
 export const slideItemSchema = z.object({
   id: z.string().min(1),
-  title: z.string().max(500),
+  title: z.string().max(500).default(""),
   subtitle: z.string().max(1000).default(""),
   bullets: z.array(z.string().max(500)).max(12).default([]),
   layout: slideLayoutSchema.default("title-body"),
@@ -75,6 +140,8 @@ export const slideItemSchema = z.object({
   imageAssetId: z.string().uuid().optional(),
   imageCaption: z.string().max(300).optional(),
   chart: chartDataSchema.optional(),
+  bgColor: z.string().max(20).optional(),
+  elements: z.array(slideElementSchema).max(100).optional(),
   notes: z.string().max(5000).default(""),
   dir: z.enum(["ltr", "rtl"]).default("ltr"),
 });
@@ -85,6 +152,7 @@ export const presentationContentSchema = z.object({
   schemaVersion: z.literal(1).default(1),
   theme: z.string().default("default"),
   slides: z.array(slideItemSchema).max(60).default([]),
+  fidelityWarnings: z.array(z.string().max(500)).max(50).optional(),
 });
 
 export type PresentationContent = z.infer<typeof presentationContentSchema>;
@@ -101,22 +169,23 @@ export const documentBlockKindSchema = z.enum([
 ]);
 export type DocumentBlockKind = z.infer<typeof documentBlockKindSchema>;
 
-export const safeUrlSchema = z
-  .string()
-  .trim()
-  .max(2000)
-  .refine(
-    (val) => val === "" || /^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(val),
-    "URL must start with http:// or https://",
-  );
+export const pageLayoutSchema = z.object({
+  size: z.enum(["a4", "letter"]).default("a4"),
+  orientation: z.enum(["portrait", "landscape"]).default("portrait"),
+  margins: z.enum(["normal", "narrow", "wide"]).default("normal"),
+});
+export type PageLayout = z.infer<typeof pageLayoutSchema>;
 
 export const documentBlockSchema = z.object({
   id: z.string().min(1),
   kind: documentBlockKindSchema,
   level: z.number().int().min(1).max(6).optional(),
   text: z.string().max(20000).default(""),
+  runs: z.array(inlineRunSchema).max(500).optional(),
+  align: textAlignSchema.optional(),
   ordered: z.boolean().optional(),
   items: z.array(z.string().max(2000)).max(100).optional(),
+  listRuns: z.array(z.array(inlineRunSchema).max(200)).max(100).optional(),
   rows: z.array(z.array(z.string().max(1000)).max(12)).max(50).optional(),
   url: safeUrlSchema.optional(),
   assetId: z.string().uuid().optional(),
@@ -128,7 +197,9 @@ export type DocumentBlock = z.infer<typeof documentBlockSchema>;
 
 export const documentContentSchema = z.object({
   schemaVersion: z.literal(1).default(1),
-  blocks: z.array(documentBlockSchema).max(200).default([]),
+  blocks: z.array(documentBlockSchema).max(500).default([]),
+  pageLayout: pageLayoutSchema.optional(),
+  fidelityWarnings: z.array(z.string().max(500)).max(50).optional(),
 });
 
 export type DocumentContent = z.infer<typeof documentContentSchema>;
