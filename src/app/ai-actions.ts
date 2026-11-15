@@ -134,6 +134,7 @@ export async function aiGenerateAction(input: {
     revalidatePath(`/projects/${project.id}`);
     return { ok: true, content, used: usage.used, limit: usage.limit, providerDemo: provider.isDemo };
   } catch (e) {
+    console.error("[aiGenerateAction failed]", e);
     await recordJob({
       userId: user.id,
       projectId: project.id,
@@ -213,6 +214,7 @@ export async function aiPreviewOutlineAction(input: {
       limit: usage.limit,
     };
   } catch (e) {
+    console.error("[aiPreviewOutlineAction failed]", e);
     await recordJob({
       userId: user.id,
       operation: "generate_outline",
@@ -315,6 +317,7 @@ export async function aiEditAction(input: {
     const usage = await getMonthlyUsage(user.id, workspaceId);
     return { ok: true, text: res.text, used: usage.used, limit: usage.limit };
   } catch (e) {
+    console.error("[aiEditAction failed]", e);
     await recordJob({
       userId: user.id,
       projectId: project.id,

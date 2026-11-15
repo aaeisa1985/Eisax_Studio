@@ -31,6 +31,7 @@ export class OpenAICompatibleProvider implements AIProvider {
         body: JSON.stringify({
           model: this.model,
           temperature: 0.4,
+          ...(/^glm-5/i.test(this.model) ? { reasoning_effort: "low" } : {}),
           ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
           messages: [
             { role: "system", content: system },
@@ -63,9 +64,14 @@ export class OpenAICompatibleProvider implements AIProvider {
         ? `You generate structured, executive-grade presentation outlines in JSON only. Return an object with keys: title (string), language ("en"|"ar"), slides (array of { title, subtitle, bullets (string[]), layout ("title"|"title-body"|"two-col"|"quote"), accentShape ("none"|"bar"|"card"|"badge"), chart (optional { kind ("bar"|"line"|"pie"), title, categories (string[]), values (number[]), unit (optional string) }), notes }). If the user requests a specific slide count (e.g. 12 slides), generate that exact count. Include realistic non-repetitive content and add chart objects on quantitative slides when metrics or charts are requested. Write all content in ${langName}.`
         : `You generate structured document outlines in JSON only. Return an object with keys: title (string), language ("en"|"ar"), blocks (array of { kind ("heading"|"paragraph"|"list"|"table"|"quote"|"chart"), level (1-3 for heading, 0 otherwise), text, ordered (boolean for list), items (string[] for list), rows (string[][] for table), chart (optional { kind ("bar"|"line"|"pie"), title, categories (string[]), values (number[]), unit (optional string) }) }). Write all content in ${langName}.`;
 
+    const explicitMatch = input.prompt.match(/\b(\d{1,2})\s*[-–]?\s*slides?\b/i) ?? input.prompt.match(/(\d{1,2})\s*(?:شرائح|شريحة)/);
+    const explicitSlides = explicitMatch?.[1]
+      ? `${Math.min(15, Math.max(2, Number.parseInt(explicitMatch[1], 10)))} slides`
+      : null;
+
     const countHint =
       type === "presentation"
-        ? { short: "3 slides", medium: "5 slides", long: "8 slides" }[input.length]
+        ? explicitSlides ?? { short: "3 slides", medium: "5 slides", long: "8 slides" }[input.length]
         : { short: "2 sections", medium: "4 sections", long: "6 sections" }[input.length];
 
     const userPrompt = [
@@ -100,29 +106,84 @@ export class OpenAICompatibleProvider implements AIProvider {
       };
     };
 
+    const normalizeLayout = (rawLayout: unknown): "title" | "title-body" | "two-col" | "quote" => {
+      const v = typeof rawLayout === "string" ? rawLayout.toLowerCase().trim() : "";
+      if (v === "title" || v === "cover" || v === "closing" || v === "hero") return "title";
+      if (v === "two-col" || v === "two_col" || v === "two-column" || v === "split" || v === "comparison") {
+        return "two-col";
+      }
+      if (v === "quote" || v === "testimonial") return "quote";
+      return "title-body";
+    };
+
+    const normalizeShape = (rawShape: unknown): "none" | "bar" | "card" | "badge" => {
+      const v = typeof rawShape === "string" ? rawShape.toLowerCase().trim() : "";
+      if (v === "none" || v === "bar" || v === "card" || v === "badge") return v;
+      if (v === "pill" || v === "tag") return "badge";
+      if (v === "box" || v === "frame") return "card";
+      return "bar";
+    };
+
+    if (typeof parsedJson.title !== "string" || !parsedJson.title.trim()) {
+      parsedJson.title = input.prompt.trim().slice(0, 120) || "Untitled Project";
+    } else {
+      parsedJson.title = parsedJson.title.trim().slice(0, 200);
+    }
+
     if (Array.isArray(parsedJson.slides)) {
-      parsedJson.slides = parsedJson.slides.map((sl) => {
-        if (!sl || typeof sl !== "object") return sl;
-        const s = { ...(sl as Record<string, unknown>) };
-        if (Array.isArray(s.bullets)) {
-          s.bullets = s.bullets.slice(0, 12).map((b) => String(b).slice(0, 500));
+      parsedJson.slides = parsedJson.slides.map((sl, idx) => {
+        if (!sl || typeof sl !== "object") {
+          return { title: `Slide ${idx + 1}`, subtitle: "", bullets: [], layout: "title-body", accentShape: "bar", notes: "" };
         }
-        s.chart = sanitizeChart(s.chart);
-        return s;
+        const rawSlide = sl as Record<string, unknown>;
+        const bullets = Array.isArray(rawSlide.bullets)
+          ? rawSlide.bullets
+              .filter((b) => b != null && String(b).trim().length > 0)
+              .slice(0, 12)
+              .map((b) => String(b).slice(0, 500))
+          : [];
+        return {
+          title: typeof rawSlide.title === "string" && rawSlide.title.trim() ? rawSlide.title.slice(0, 500) : `Slide ${idx + 1}`,
+          subtitle: typeof rawSlide.subtitle === "string" ? rawSlide.subtitle.slice(0, 1000) : "",
+          bullets,
+          layout: normalizeLayout(rawSlide.layout),
+          accentShape: normalizeShape(rawSlide.accentShape),
+          chart: sanitizeChart(rawSlide.chart),
+          notes: typeof rawSlide.notes === "string" ? rawSlide.notes.slice(0, 5000) : "",
+        };
       });
     }
     if (Array.isArray(parsedJson.blocks)) {
+      const allowedKinds = new Set(["heading", "paragraph", "list", "table", "quote", "chart"]);
       parsedJson.blocks = parsedJson.blocks.map((bl) => {
-        if (!bl || typeof bl !== "object") return bl;
-        const b = { ...(bl as Record<string, unknown>) };
-        if (b.kind === "chart") {
-          const clean = sanitizeChart(b.chart);
-          if (!clean) b.kind = "paragraph";
-          b.chart = clean;
-        } else {
-          delete b.chart;
+        if (!bl || typeof bl !== "object") {
+          return { kind: "paragraph", level: 0, text: "" };
         }
-        return b;
+        const rawBlock = bl as Record<string, unknown>;
+        let kind = typeof rawBlock.kind === "string" && allowedKinds.has(rawBlock.kind) ? rawBlock.kind : "paragraph";
+        const chart = kind === "chart" ? sanitizeChart(rawBlock.chart) : undefined;
+        if (kind === "chart" && !chart) kind = "paragraph";
+        const rawLevel = Number(rawBlock.level);
+        const level = Number.isInteger(rawLevel) ? Math.min(6, Math.max(0, rawLevel)) : kind === "heading" ? 2 : 0;
+        const items =
+          kind === "list" && Array.isArray(rawBlock.items)
+            ? rawBlock.items.slice(0, 100).map((it) => String(it ?? "").slice(0, 2000))
+            : undefined;
+        const rows =
+          kind === "table" && Array.isArray(rawBlock.rows)
+            ? rawBlock.rows
+                .slice(0, 50)
+                .map((r) => (Array.isArray(r) ? r.slice(0, 12).map((c) => String(c ?? "").slice(0, 1000)) : []))
+            : undefined;
+        return {
+          kind,
+          level,
+          text: typeof rawBlock.text === "string" ? rawBlock.text.slice(0, 20_000) : "",
+          ordered: kind === "list" ? Boolean(rawBlock.ordered) : undefined,
+          items,
+          rows,
+          chart,
+        };
       });
     }
     if (parsedJson.language !== "en" && parsedJson.language !== "ar") {

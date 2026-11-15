@@ -99,6 +99,45 @@ describe("demo AI provider (deterministic, offline)", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+
+    // Normalizes non-enum layout/shape and null fields from reasoning models (e.g. GLM-5.3-Flash)
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  title: "EISAX Live",
+                  slides: [
+                    { title: "Cover", subtitle: null, bullets: ["One"], layout: "cover", accentShape: "gradient-circle", notes: null },
+                    { title: "Growth", bullets: ["Two"], layout: "chart-focus", accentShape: "shield", chart: { kind: "line", title: "ARR", categories: ["Q1", "Q2"], values: [1, 2], unit: "$M" } },
+                    { title: "Model", bullets: ["Three"], layout: "split", accentShape: "pill" },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as typeof fetch;
+
+    try {
+      const glm = new OpenAICompatibleProvider("https://example.invalid/v1", "sk-test", "glm-5.3-flash");
+      const out = await glm.generateOutline(
+        { projectId: "00000000-0000-0000-0000-000000000000", prompt: "10 slides for EISAX", tone: "persuasive", length: "medium" },
+        "presentation",
+        "en",
+      );
+      expect(out.slides?.[0]?.layout).toBe("title");
+      expect(out.slides?.[0]?.accentShape).toBe("bar");
+      expect(out.slides?.[1]?.layout).toBe("title-body");
+      expect(out.slides?.[1]?.chart?.kind).toBe("line");
+      expect(out.slides?.[2]?.layout).toBe("two-col");
+      expect(out.slides?.[2]?.accentShape).toBe("badge");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("edit operations shorten, expand and translate", async () => {

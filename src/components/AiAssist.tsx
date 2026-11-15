@@ -290,7 +290,14 @@ export function AiGeneratePanel({
         </p>
       )}
       {open && (
-        <form action={submit} className="card mt-2 space-y-2.5 p-3">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (busy) return;
+            void submit(new FormData(e.currentTarget));
+          }}
+          className="card mt-2 space-y-2.5 p-3"
+        >
           <p className="text-xs" style={{ color: "var(--text-dim)" }} dir="auto">
             {locale === "ar" ? "الحصة الشهرية: " : "Monthly quota: "}
             <strong>
@@ -354,7 +361,13 @@ export function AiGeneratePanel({
               {locale === "ar" ? "إغلاق" : "Close"}
             </button>
             <button type="submit" disabled={busy} className="btn btn-primary text-xs">
-              {busy ? (locale === "ar" ? "جارٍ التوليد…" : "Generating…") : locale === "ar" ? "توليد" : "Generate"}
+              {busy
+                ? locale === "ar"
+                  ? "جارٍ التوليد… (~30-60ث)"
+                  : "Generating… (~30-60s)"
+                : locale === "ar"
+                  ? "توليد"
+                  : "Generate"}
             </button>
           </div>
         </form>
