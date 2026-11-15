@@ -1,3 +1,71 @@
+import type JSZip from "jszip";
+
+const MAX_ZIP_ENTRIES = 600;
+const MAX_XML_UNCOMPRESSED_BYTES = 12 * 1024 * 1024; // 12 MiB per XML part
+const MAX_MEDIA_UNCOMPRESSED_BYTES = 5 * 1024 * 1024; // 5 MiB per embedded image
+
+/**
+ * Guard against Zip-bomb / excessive entry count archives before extracting parts.
+ */
+export function assertSafeZipArchive(zip: JSZip): void {
+  const entries = Object.values(zip.files);
+  if (entries.length === 0 || entries.length > MAX_ZIP_ENTRIES) {
+    throw new Error("zip_archive_too_many_entries");
+  }
+  let totalUncompressed = 0;
+  for (const entry of entries) {
+    const meta = (entry as unknown as { _data?: { uncompressedSize?: number } })._data;
+    const size = typeof meta?.uncompressedSize === "number" ? meta.uncompressedSize : 0;
+    if (size < 0 || size > 50 * 1024 * 1024) {
+      throw new Error("zip_entry_exceeds_limit");
+    }
+    totalUncompressed += size;
+    if (totalUncompressed > 80 * 1024 * 1024) {
+      throw new Error("zip_total_uncompressed_exceeds_limit");
+    }
+  }
+}
+
+export async function readSafeZipXml(
+  zip: JSZip,
+  filePath: string,
+): Promise<string | null> {
+  const entry = zip.file(filePath);
+  if (!entry) return null;
+  const meta = (entry as unknown as { _data?: { uncompressedSize?: number } })._data;
+  if (
+    typeof meta?.uncompressedSize === "number" &&
+    meta.uncompressedSize > MAX_XML_UNCOMPRESSED_BYTES
+  ) {
+    throw new Error("zip_xml_part_too_large");
+  }
+  const str = await entry.async("string");
+  if (str.length > MAX_XML_UNCOMPRESSED_BYTES) {
+    throw new Error("zip_xml_part_too_large");
+  }
+  return str;
+}
+
+export async function readSafeZipMedia(
+  zip: JSZip,
+  filePath: string,
+): Promise<Buffer | null> {
+  const entry = zip.file(filePath);
+  if (!entry) return null;
+  const meta = (entry as unknown as { _data?: { uncompressedSize?: number } })._data;
+  if (
+    typeof meta?.uncompressedSize === "number" &&
+    meta.uncompressedSize > MAX_MEDIA_UNCOMPRESSED_BYTES
+  ) {
+    return null;
+  }
+  const buf = Buffer.from(await entry.async("nodebuffer"));
+  if (buf.length > MAX_MEDIA_UNCOMPRESSED_BYTES) {
+    return null;
+  }
+  return buf;
+}
+
 /**
  * Lightweight, dependency-free recursive OOXML parser preserving element order,
  * attributes, namespaces/localNames, and exact character data inside text nodes.

@@ -19,7 +19,8 @@ async function clientKey(): Promise<string> {
 }
 
 export async function signUpAction(_prev: AuthResult | null, formData: FormData): Promise<AuthResult> {
-  const rl = rateLimit(`signup:${await clientKey()}`, 5, 60_000);
+  const ip = await clientKey();
+  const rl = rateLimit(`signup:${ip}`, 5, 60_000);
   if (!rl.ok) return { ok: false, error: "rate_limited" };
 
   const parsed = signUpSchema.safeParse({
@@ -28,6 +29,9 @@ export async function signUpAction(_prev: AuthResult | null, formData: FormData)
     displayName: formData.get("displayName"),
   });
   if (!parsed.success) return { ok: false, error: "invalid_input" };
+
+  const emailRl = rateLimit(`signup:email:${parsed.data.email}`, 5, 60_000);
+  if (!emailRl.ok) return { ok: false, error: "rate_limited" };
 
   const db = await getDb();
   const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, parsed.data.email)).limit(1);
@@ -58,8 +62,11 @@ export async function signUpAction(_prev: AuthResult | null, formData: FormData)
 }
 
 export async function signInAction(_prev: AuthResult | null, formData: FormData): Promise<AuthResult> {
-  const rl = rateLimit(`signin:${await clientKey()}`, 10, 60_000);
-  if (!rl.ok) return { ok: false, error: "rate_limited" };
+  const ip = await clientKey();
+  const rawEmail = String(formData.get("email") ?? "").trim().toLowerCase().slice(0, 255);
+  const rl = rateLimit(`signin:${ip}`, 10, 60_000);
+  const emailRl = rawEmail ? rateLimit(`signin:email:${rawEmail}`, 8, 60_000) : { ok: true };
+  if (!rl.ok || !emailRl.ok) return { ok: false, error: "rate_limited" };
 
   const parsed = signInSchema.safeParse({
     email: formData.get("email"),

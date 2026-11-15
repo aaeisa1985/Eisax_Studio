@@ -7,7 +7,19 @@ import {
   type PageLayout,
   type TextAlign,
 } from "@/lib/validation/projects";
-import { attr, child, childrenOf, descendants, firstDescendant, parseXml, textContent, type XmlNode } from "./xml";
+import {
+  assertSafeZipArchive,
+  attr,
+  child,
+  childrenOf,
+  descendants,
+  firstDescendant,
+  parseXml,
+  readSafeZipMedia,
+  readSafeZipXml,
+  textContent,
+  type XmlNode,
+} from "./xml";
 
 export type SaveAssetFn = (args: {
   bytes: Buffer;
@@ -193,22 +205,22 @@ export async function importDocx(
   saveAsset?: SaveAssetFn,
 ): Promise<DocxImportResult> {
   const zip = await JSZip.loadAsync(bytes);
-  const docFile = zip.file("word/document.xml");
-  if (!docFile) {
+  assertSafeZipArchive(zip);
+  const docXmlStr = await readSafeZipXml(zip, "word/document.xml");
+  if (!docXmlStr) {
     throw new Error("invalid_docx_missing_document_xml");
   }
 
-  const docXmlStr = await docFile.async("string");
   const docRoot = parseXml(docXmlStr);
   const body = child(docRoot, "body") ?? firstDescendant(docRoot, "body");
   if (!body) {
     throw new Error("invalid_docx_missing_body");
   }
 
-  const relsXml = (await zip.file("word/_rels/document.xml.rels")?.async("string")) ?? null;
+  const relsXml = await readSafeZipXml(zip, "word/_rels/document.xml.rels");
   const rels = parseRels(relsXml);
 
-  const numberingXml = (await zip.file("word/numbering.xml")?.async("string")) ?? null;
+  const numberingXml = await readSafeZipXml(zip, "word/numbering.xml");
   const numberingMap = parseNumberingMap(numberingXml);
 
   const warnings = new Set<string>();
@@ -225,6 +237,7 @@ export async function importDocx(
 
   const blocks: DocumentBlock[] = [];
   let seq = 0;
+  let importedImages = 0;
 
   const pushParagraphRuns = async (
     pNode: XmlNode,
@@ -250,15 +263,15 @@ export async function importDocx(
           const blip = firstDescendant(ch, "blip");
           const embedId = attr(blip, "embed") ?? attr(blip, "link");
           const rel = embedId ? rels.get(embedId) : undefined;
-          if (rel && saveAsset) {
+          if (rel && saveAsset && importedImages < 40) {
             const mediaPath = rel.target.startsWith("/")
               ? rel.target.slice(1)
               : rel.target.startsWith("word/")
                 ? rel.target
                 : `word/${rel.target.replace(/^\.\//, "")}`;
-            const mediaEntry = zip.file(mediaPath);
-            if (mediaEntry) {
-              const mediaBytes = Buffer.from(await mediaEntry.async("nodebuffer"));
+            const mediaBytes = await readSafeZipMedia(zip, mediaPath);
+            if (mediaBytes) {
+              importedImages += 1;
               const assetId = await saveAsset({
                 bytes: mediaBytes,
                 originalName: mediaPath.split("/").pop(),

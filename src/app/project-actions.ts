@@ -12,6 +12,7 @@ import {
   updateProject,
 } from "@/lib/projects/service";
 import { audit } from "@/lib/security/audit";
+import { rateLimit } from "@/lib/security/rateLimit";
 import { STARTER_TEMPLATES } from "@/lib/projects/templates";
 
 export async function createProjectFromTemplateAction(
@@ -98,6 +99,8 @@ export async function updateProjectContentAction(
   content: unknown,
 ): Promise<{ ok: boolean; error?: string }> {
   const user = await requireUser();
+  const rl = rateLimit(`save:${user.id}`, 120, 60_000);
+  if (!rl.ok) return { ok: false, error: "rate_limited" };
   return updateProject(user.id, projectId, { content });
 }
 
@@ -106,6 +109,8 @@ export async function updateProjectMetaAction(
   meta: { title?: string; language?: string },
 ): Promise<{ ok: boolean; error?: string }> {
   const user = await requireUser();
+  const rl = rateLimit(`meta:${user.id}`, 60, 60_000);
+  if (!rl.ok) return { ok: false, error: "rate_limited" };
   return updateProject(user.id, projectId, meta);
 }
 

@@ -65,11 +65,11 @@ export async function listProjects(
     isNull(projects.archivedAt),
   ] as const;
   if (parsed.data.q) {
-    const q = parsed.data.q;
+    const escaped = parsed.data.q.replace(/[\\%_]/g, "\\$&");
     const matching = await db
       .select({ id: projects.id, workspaceId: projects.workspaceId, ownerId: projects.ownerId, type: projects.type, title: projects.title, language: projects.language, content: projects.content, updatedAt: projects.updatedAt })
       .from(projects)
-      .where(and(...conditions, ilike(projects.title, `%${q}%`)))
+      .where(and(...conditions, ilike(projects.title, `%${escaped}%`)))
       .orderBy(desc(projects.updatedAt))
       .limit(100);
     return matching as ProjectRow[];

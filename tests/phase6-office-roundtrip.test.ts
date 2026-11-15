@@ -826,7 +826,8 @@ describe("Phase 6 Office Round-Trip Compatibility", () => {
     );
 
     expect("data" in out).toBe(true);
-    const zip = await JSZip.loadAsync((out as { data: Buffer }).data);
+    const pptxBuf = (out as { data: Buffer }).data;
+    const zip = await JSZip.loadAsync(pptxBuf);
     const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
     expect(slideXml).toContain("<a:tbl");
     expect(slideXml).toContain("المبيعات");
@@ -835,6 +836,36 @@ describe("Phase 6 Office Round-Trip Compatibility", () => {
     expect(slideXml).toContain('l="8000"');
     expect(slideXml).toContain('t="12000"');
     expect(slideXml).toContain('type="sldNum"');
+
+    // Re-import PPTX and verify native table, image crop, rotation, fontFamily, and showSlideNumbers round-trip
+    const reimported = await importPptx(pptxBuf, assets.saveAsset);
+    expect(reimported.content.showSlideNumbers).toBe(true);
+    const els = reimported.content.slides[0]?.elements ?? [];
+    const impTxt = els.find((e) => e.kind === "text");
+    expect(impTxt?.fontFamily).toBe("Cairo");
+    expect(impTxt?.rotation).toBe(15);
+
+    const impTbl = els.find((e) => e.kind === "table");
+    expect(impTbl?.rows).toEqual([
+      ["البند", "القيمة"],
+      ["المبيعات", "١٢٠"],
+    ]);
+    expect(impTbl?.colWidths?.length).toBe(2);
+    expect(impTbl?.colWidths?.[0]).toBeGreaterThan(impTbl?.colWidths?.[1] ?? 100);
+    expect(impTbl?.fontFamily).toBe("Tajawal");
+
+    const impImg = els.find((e) => e.kind === "image");
+    expect(impImg?.crop).toEqual({ top: 12, right: 8, bottom: 12, left: 8 });
+    expect(impImg?.rotation).toBe(30);
+  });
+
+  it("rejects zip archives with excessive entries (zip-bomb guard)", async () => {
+    const zip = new JSZip();
+    for (let i = 0; i < 605; i++) {
+      zip.file(`word/part-${i}.xml`, "<x/>");
+    }
+    const bombBuf = Buffer.from(await zip.generateAsync({ type: "nodebuffer" }));
+    await expect(importDocx(bombBuf)).rejects.toThrow("zip_archive_too_many_entries");
   });
 
   it("handles Arabic-Indic numeral conversion, script toggling, and crop CSS math", () => {

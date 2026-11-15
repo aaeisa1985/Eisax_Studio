@@ -10,12 +10,15 @@ import {
 } from "@/lib/validation/projects";
 import type { SaveAssetFn } from "./docx";
 import {
+  assertSafeZipArchive,
   attr,
   child,
   childrenOf,
   descendants,
   firstDescendant,
   parseXml,
+  readSafeZipMedia,
+  readSafeZipXml,
   textContent,
   type XmlNode,
 } from "./xml";
@@ -104,7 +107,7 @@ function parseXfrm(
   slideH: number,
   offsetX = 0,
   offsetY = 0,
-): { x: number; y: number; w: number; h: number } | null {
+): { x: number; y: number; w: number; h: number; rotation?: number } | null {
   const xfrm = child(spPr, "xfrm");
   if (!xfrm) return null;
   const off = child(xfrm, "off");
@@ -115,12 +118,19 @@ function parseXfrm(
   const cy = Number.parseInt(attr(ext, "cy") ?? "0", 10);
   if (cx <= 0 || cy <= 0) return null;
 
+  const rotRaw = Number.parseInt(attr(xfrm, "rot") ?? "", 10);
+  const rotDeg =
+    Number.isFinite(rotRaw) && rotRaw !== 0
+      ? Math.round((((rotRaw / 60000) % 360) + 360) % 360)
+      : 0;
+
   const round2 = (n: number) => Math.round(n * 100) / 100;
   return {
     x: Math.max(-25, Math.min(120, round2((ox / slideW) * 100))),
     y: Math.max(-25, Math.min(120, round2((oy / slideH) * 100))),
     w: Math.max(0.5, Math.min(140, round2((cx / slideW) * 100))),
     h: Math.max(0.5, Math.min(140, round2((cy / slideH) * 100))),
+    ...(rotDeg > 0 ? { rotation: rotDeg } : {}),
   };
 }
 
@@ -128,6 +138,7 @@ function extractTxBody(txBody: XmlNode | undefined): {
   text: string;
   runs: InlineRun[];
   fontSize?: number;
+  fontFamily?: string;
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
@@ -144,6 +155,7 @@ function extractTxBody(txBody: XmlNode | undefined): {
   let firstAlign: TextAlign | undefined;
   let rtl = false;
   let firstFontSize: number | undefined;
+  let firstFontFamily: string | undefined;
   let firstColor: string | undefined;
   let allBold = true;
   let hasRun = false;
@@ -177,6 +189,8 @@ function extractTxBody(txBody: XmlNode | undefined): {
         const u = Boolean(uAttr && uAttr !== "none");
         const solid = child(rPr, "solidFill");
         const color = parseHexColor(solid);
+        const latin = child(rPr, "latin") ?? child(rPr, "cs");
+        const fontFamily = attr(latin, "typeface");
 
         const tNode = child(ch, "t");
         const t = textContent(tNode);
@@ -184,6 +198,7 @@ function extractTxBody(txBody: XmlNode | undefined): {
           hasRun = true;
           if (!b) allBold = false;
           if (!firstFontSize && fontSize) firstFontSize = fontSize;
+          if (!firstFontFamily && fontFamily) firstFontFamily = fontFamily.slice(0, 80);
           if (!firstColor && color) firstColor = color;
           pText += t;
           allRuns.push({
@@ -193,6 +208,7 @@ function extractTxBody(txBody: XmlNode | undefined): {
             ...(u ? { underline: true } : {}),
             ...(color ? { color } : {}),
             ...(fontSize && fontSize <= 72 ? { fontSize } : {}),
+            ...(fontFamily ? { fontFamily: fontFamily.slice(0, 80) } : {}),
           });
         }
       } else if (ch.localName === "br") {
@@ -214,6 +230,7 @@ function extractTxBody(txBody: XmlNode | undefined): {
     text: text.slice(0, 20000),
     runs: allRuns.slice(0, 200),
     fontSize: firstFontSize,
+    fontFamily: firstFontFamily,
     bold: hasRun ? allBold : undefined,
     color: firstColor,
     align: firstAlign,
@@ -231,7 +248,8 @@ export async function importPptx(
   saveAsset?: SaveAssetFn,
 ): Promise<PptxImportResult> {
   const zip = await JSZip.loadAsync(bytes);
-  const presXmlStr = await zip.file("ppt/presentation.xml")?.async("string");
+  assertSafeZipArchive(zip);
+  const presXmlStr = await readSafeZipXml(zip, "ppt/presentation.xml");
   if (!presXmlStr) {
     throw new Error("invalid_pptx_missing_presentation_xml");
   }
@@ -241,7 +259,7 @@ export async function importPptx(
   const slideW = Number.parseInt(attr(sldSz, "cx") ?? "", 10) || 9144000;
   const slideH = Number.parseInt(attr(sldSz, "cy") ?? "", 10) || 5143500;
 
-  const presRelsStr = (await zip.file("ppt/_rels/presentation.xml.rels")?.async("string")) ?? null;
+  const presRelsStr = await readSafeZipXml(zip, "ppt/_rels/presentation.xml.rels");
   const presRels = parseRelsMap(presRelsStr);
 
   const orderedPaths: string[] = [];
@@ -262,10 +280,12 @@ export async function importPptx(
   const warnings = new Set<string>();
   const slides: SlideItem[] = [];
   let elSeq = 0;
+  let importedImages = 0;
+  let hasSlideNumbers = false;
 
   for (let idx = 0; idx < Math.min(orderedPaths.length, 60); idx++) {
     const slidePath = orderedPaths[idx]!;
-    const slideXmlStr = await zip.file(slidePath)?.async("string");
+    const slideXmlStr = await readSafeZipXml(zip, slidePath);
     if (!slideXmlStr) continue;
     const slideDoc = parseXml(slideXmlStr);
 
@@ -275,13 +295,14 @@ export async function importPptx(
     if (firstDescendant(slideDoc, "transition")) {
       warnings.add("Slide transitions (p:transition) are omitted when re-exporting.");
     }
-    if (descendants(slideDoc, "graphicFrame").length > 0) {
+    const gFrames = descendants(slideDoc, "graphicFrame");
+    if (gFrames.some((gf) => !firstDescendant(gf, "tbl"))) {
       warnings.add("Embedded SmartArt/complex graphic frames may require manual recreation if not represented as standard shapes/images.");
     }
 
     const slideFile = slidePath.split("/").pop()!;
     const slideRelsPath = `ppt/slides/_rels/${slideFile}.rels`;
-    const slideRels = parseRelsMap((await zip.file(slideRelsPath)?.async("string")) ?? null);
+    const slideRels = parseRelsMap(await readSafeZipXml(zip, slideRelsPath));
 
     // Slide background color
     const bg = firstDescendant(slideDoc, "bg");
@@ -304,6 +325,10 @@ export async function importPptx(
           const nvPr = child(nvSpPr, "nvPr");
           const ph = child(nvPr, "ph");
           const phType = attr(ph, "type");
+          if (phType === "sldNum") {
+            hasSlideNumbers = true;
+            continue;
+          }
           const spPr = child(node, "spPr");
           const box = parseXfrm(spPr, slideW, slideH, offX, offY);
           if (!box) continue;
@@ -339,6 +364,7 @@ export async function importPptx(
               y: box.y,
               w: box.w,
               h: box.h,
+              ...(box.rotation ? { rotation: box.rotation } : {}),
               zIndex: elements.length + 1,
               fillColor,
               borderColor,
@@ -353,10 +379,12 @@ export async function importPptx(
               y: box.y,
               w: box.w,
               h: box.h,
+              ...(box.rotation ? { rotation: box.rotation } : {}),
               zIndex: elements.length + 1,
               text: parsedTx.text,
               runs: parsedTx.runs.length > 0 ? parsedTx.runs : undefined,
               fontSize: parsedTx.fontSize ?? (phType === "title" || phType === "ctrTitle" ? 28 : 16),
+              ...(parsedTx.fontFamily ? { fontFamily: parsedTx.fontFamily } : {}),
               bold: parsedTx.bold ?? (phType === "title" || phType === "ctrTitle"),
               color: parsedTx.color ?? (bgColor && Number.parseInt(bgColor.slice(0, 2), 16) < 90 ? "F1F5F9" : "17222E"),
               align: parsedTx.align ?? (parsedTx.dir === "rtl" ? "right" : "left"),
@@ -372,13 +400,30 @@ export async function importPptx(
           const box = parseXfrm(spPr, slideW, slideH, offX, offY);
           const blipFill = child(node, "blipFill");
           const blip = firstDescendant(blipFill, "blip");
+          const srcRect = firstDescendant(blipFill, "srcRect");
+          const parseCropPct = (raw: string | undefined) => {
+            const v = Number.parseInt(raw ?? "", 10);
+            if (!Number.isFinite(v) || v <= 0) return 0;
+            return Math.round(Math.min(85, Math.max(0, v / 1000)) * 10) / 10;
+          };
+          const cropObj = srcRect
+            ? {
+                top: parseCropPct(attr(srcRect, "t")),
+                right: parseCropPct(attr(srcRect, "r")),
+                bottom: parseCropPct(attr(srcRect, "b")),
+                left: parseCropPct(attr(srcRect, "l")),
+              }
+            : undefined;
+          const hasAnyCrop = Boolean(
+            cropObj && (cropObj.top > 0 || cropObj.right > 0 || cropObj.bottom > 0 || cropObj.left > 0),
+          );
           const embedId = attr(blip, "embed");
           const rel = embedId ? slideRels.get(embedId) : undefined;
-          if (box && rel && saveAsset) {
+          if (box && rel && saveAsset && importedImages < 40) {
             const mediaPath = resolvePptPath("ppt/slides", rel.target);
-            const entry = zip.file(mediaPath);
-            if (entry) {
-              const imgBytes = Buffer.from(await entry.async("nodebuffer"));
+            const imgBytes = await readSafeZipMedia(zip, mediaPath);
+            if (imgBytes) {
+              importedImages += 1;
               const assetId = await saveAsset({
                 bytes: imgBytes,
                 originalName: mediaPath.split("/").pop(),
@@ -391,12 +436,68 @@ export async function importPptx(
                   y: box.y,
                   w: box.w,
                   h: box.h,
+                  ...(box.rotation ? { rotation: box.rotation } : {}),
+                  ...(hasAnyCrop && cropObj ? { crop: cropObj } : {}),
                   zIndex: elements.length + 1,
                   assetId,
                 });
               } else {
                 warnings.add(`Slide ${idx + 1} picture "${rel.target}" uses an unsupported format (only PNG/JPEG/WebP supported).`);
               }
+            }
+          }
+        } else if (node.localName === "graphicFrame") {
+          const tbl = firstDescendant(node, "tbl");
+          const box = parseXfrm(node, slideW, slideH, offX, offY);
+          if (tbl && box) {
+            const tblGrid = child(tbl, "tblGrid");
+            const rawCols = childrenOf(tblGrid, "gridCol")
+              .map((gc) => Number.parseInt(attr(gc, "w") ?? "", 10))
+              .filter((n) => Number.isFinite(n) && n > 0);
+            const rows: string[][] = [];
+            const rowHeights: number[] = [];
+            let tblRtl = false;
+            let tblFont: string | undefined;
+
+            for (const tr of childrenOf(tbl, "tr").slice(0, 30)) {
+              const hEmu = Number.parseInt(attr(tr, "h") ?? "", 10);
+              if (Number.isFinite(hEmu) && hEmu > 0) {
+                rowHeights.push(Math.max(20, Math.min(360, Math.round(hEmu / 9525))));
+              }
+              const rowCells: string[] = [];
+              for (const tc of childrenOf(tr, "tc").slice(0, 12)) {
+                const txBody = child(tc, "txBody");
+                const parsedCell = extractTxBody(txBody);
+                if (parsedCell.dir === "rtl") tblRtl = true;
+                if (!tblFont && parsedCell.fontFamily) tblFont = parsedCell.fontFamily;
+                rowCells.push(parsedCell.text.slice(0, 500));
+              }
+              if (rowCells.length > 0) rows.push(rowCells);
+            }
+            if (rows.length > 0) {
+              const colCount = Math.max(...rows.map((r) => r.length), 1);
+              let colWidths: number[] | undefined;
+              if (rawCols.length === colCount) {
+                const sum = rawCols.reduce((a, b) => a + b, 0);
+                if (sum > 0) {
+                  colWidths = rawCols.map((w) => Math.max(5, Math.round((w / sum) * 1000) / 10));
+                }
+              }
+              if (tblRtl) slideRtl = true;
+              elements.push({
+                id: `el${++elSeq}`,
+                kind: "table",
+                x: box.x,
+                y: box.y,
+                w: box.w,
+                h: box.h,
+                zIndex: elements.length + 1,
+                rows,
+                ...(colWidths ? { colWidths } : {}),
+                ...(rowHeights.length === rows.length ? { rowHeights } : {}),
+                ...(tblFont ? { fontFamily: tblFont } : {}),
+                dir: tblRtl ? "rtl" : "ltr",
+              });
             }
           }
         } else if (node.localName === "grpSp") {
@@ -424,7 +525,7 @@ export async function importPptx(
     for (const rel of slideRels.values()) {
       if (rel.type.toLowerCase().includes("notesslide")) {
         const notesPath = resolvePptPath("ppt/slides", rel.target);
-        const notesXmlStr = await zip.file(notesPath)?.async("string");
+        const notesXmlStr = await readSafeZipXml(zip, notesPath);
         if (notesXmlStr) {
           const notesDoc = parseXml(notesXmlStr);
           const noteParas = descendants(notesDoc, "p")
@@ -462,6 +563,7 @@ export async function importPptx(
     schemaVersion: 1,
     theme: "light",
     slides,
+    ...(hasSlideNumbers ? { showSlideNumbers: true } : {}),
     ...(fidelityWarnings.length > 0 ? { fidelityWarnings } : {}),
   });
 
