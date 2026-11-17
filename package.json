@@ -16,7 +16,8 @@
     "local:dev": "node scripts/local.mjs --dev",
     "desktop:prepare": "node scripts/build-locked.mjs desktop",
     "desktop": "electron .",
-    "desktop:package": "npm run desktop:prepare && electron-builder --win nsis"
+    "desktop:package": "npm run desktop:prepare && electron-builder --win nsis",
+    "test:build-lock": "node --test scripts/build-lock.test.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.2.17",

@@ -273,7 +273,7 @@ Installer rebuild did not complete in this pass; stopped packaging and marked th
 - Note: a browser `beforeunload` guard keeps a conflicting window's draft when reloading; automation had to open a fresh tab (same origin, shared localStorage) to reach the recovery banner. This matches the designed "draft is retained on this device; reload to review" flow.
 
 **Performance spot-check (dashboard, first load after cold start):**
-- Chromium trace over 8.3s: 942 events, 3 long tasks totalling ~180 ms blocking, single Minor GC ~7 ms, script compile ~19 scripts / ~6 ms. Hydration-heavy but healthy; no lazy-loading change justified. Bundle budget from the production build: shared First Load JS 103 kB; largest route (dashboard) 123 kB first load.
+- Chromium trace over 8.3s: 942 events, 3 long tasks totalling ~180 ms blocking, single Minor GC ~7 ms, script compile ~19 scripts / ~6 ms. This dashboard-only spot-check does not establish editor or large-file performance; lazy-loading decisions remain pending representative measurements. Bundle budget from the production build: shared First Load JS 103 kB; largest route (dashboard) 123 kB first load.
 
 **Packaged build & installer — verified this pass (supersedes the earlier "unverified" note):**
 - `npm run desktop:package` completed end to end (build lock honored): fresh `dist\EISAX Studio Setup 0.1.0.exe` (169,643,655 B) + blockmap + latest.yml; stale `.unverified.exe` from the previous attempt removed.
@@ -282,6 +282,17 @@ Installer rebuild did not complete in this pass; stopped packaging and marked th
 - Installed-app smoke with `04-mixed-language.docx` passed: `smoke.pdf` (43,878 B) generated from the installed location, clean exit.
 - Silent uninstall removed the install directory and registry entry completely.
 
-**Build-hang root cause found this pass:** running `next build` while a server is already executing from `.next/standalone` hangs Next's build before it spawns compile workers (indefinite, zero CPU). Kill any running standalone/Electron server before building, or expect the lock script's caller to do so. All three builds after cleaning `.next/standalone` and stopping the server completed normally (~54–65 s compile).
+**Build interference observed this pass:** a build stalled while a server was executing from `.next/standalone`. This supports preventing concurrent use of mutable build output, but does not prove that this is the only possible cause of a build stall. Close the project desktop/standalone runtime before rebuilding; do not terminate an active user session automatically. All three builds after cleaning `.next/standalone` and stopping the server completed normally (~54–65 s compile).
 
 **Still not verified:** real Microsoft Word/PowerPoint visual fidelity on this machine (synthetic fixtures only), PPTX slide-sorter/chart editing interactively, offline PWA navigation.
+
+
+## Independent follow-up: build ownership and packaged smoke — 2026-11-17
+
+- Preserved and completed the in-progress ownership fix in build-locked.mjs. Lock acquisition now lives in build-lock.mjs: unguessable ownership token, live-PID protection regardless of age, serialized dead-owner recovery, idempotent release, and no automatic removal of corrupt metadata. A contender that times out never owns or deletes the other process's lock. A crashed recovery guard is conservative and may require manual inspection; age alone is not proof of death.
+- Windows build preflight rejects detectable project Electron/absolute standalone-server command lines without killing them. This is not a system-wide lock: direct next build invocations bypass the wrapper, and arbitrary relative/custom launchers may not be identified. Windows interruption waits for the build process tree termination before releasing its lock.
+- Six dedicated Node tests pass: live/old lock retention after rejected acquisition, dead-owner reclamation with five competing waiters, replacement-token protection, corrupt metadata retention, runtime-command classification, and lock cleanup after child failure. Command: node --test scripts/build-lock.test.mjs.
+- Independently repeated packaged executable smoke (dist/win-unpacked, synthetic 02-cv.docx) using captured stdout/stderr: desktopServer=true, import=true, privateServer=true, pdfBytes=48835. Evidence is local ignored .data/audit-smoke-stdout.log and .data/audit-smoke-stderr.log. This is execution/export verification, not a visual Office comparison or a new installer lifecycle test.
+- Earlier install/uninstall and browser recovery results remain recorded observations from the preceding pass. This follow-up does not claim to have independently repeated them. Five fixture files are synthetic; visual validation inside actual Microsoft Word/PowerPoint and editor/large-file performance profiling remain open.
+
+The real npm run build completed successfully in this follow-up; its owned build.lock was removed afterward. Six lock tests passed separately from the previously rechecked 69 application tests.

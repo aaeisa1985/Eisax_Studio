@@ -56,3 +56,5 @@ Configuration: copy `.env.example` to `.env.local`. **No paid or external servic
 English and Arabic with full RTL support. Switch from the header; content direction is per-element (`dir="auto"`).
 
 Desktop fullscreen: use the visible Fullscreen button, View menu, or F11. Press Esc to exit. Close and reopen the desktop app after updating its build.
+
+Build safety: use npm run build / npm run desktop:prepare so lock ownership is respected. Close the project desktop/standalone runtime before rebuilding. The Windows preflight rejects detectable running instances; it does not stop them. Run node --test scripts/build-lock.test.mjs for the dedicated contention regressions. Do not delete a lock merely because it is old; unreadable metadata/recovery guards require inspection.

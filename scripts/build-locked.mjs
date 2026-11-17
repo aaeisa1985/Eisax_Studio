@@ -1,64 +1,18 @@
 import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { acquireBuildLock } from "./build-lock.mjs";
+import { assertNoBuildRuntime } from "./build-runtime-check.mjs";
 
-/**
- * Serializes operations that write `.next` (production build and desktop
- * preparation). Running two of them at once corrupts Next's output with
- * ENOENT pages-manifest/vendor-chunk errors.
- */
 const mode = process.argv[2];
 if (mode !== "build" && mode !== "desktop") {
   console.error("Usage: node scripts/build-locked.mjs build|desktop");
   process.exit(2);
 }
-
 const root = process.cwd();
-const lockDir = path.resolve(root, ".data");
-const lockFile = path.join(lockDir, "build.lock");
-const STALE_MS = 15 * 60 * 1000;
-const MAX_WAIT_MS = 20_000;
-mkdirSync(lockDir, { recursive: true });
-
-let fd;
 let child;
-let released = false;
-
-function releaseSync() {
-  if (released) return;
-  released = true;
-  if (fd !== undefined) {
-    try { closeSync(fd); } catch {}
-    fd = undefined;
-  }
-  try { rmSync(lockFile, { force: true }); } catch {}
-}
-
-async function acquire() {
-  const deadline = Date.now() + MAX_WAIT_MS;
-  for (;;) {
-    try {
-      fd = openSync(lockFile, "wx");
-      writeFileSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
-      return;
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      let stale = false;
-      try {
-        const info = JSON.parse(readFileSync(lockFile, "utf8"));
-        stale = typeof info?.at === "number" && Date.now() - info.at > STALE_MS;
-      } catch {}
-      if (stale) {
-        rmSync(lockFile, { force: true });
-        continue;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error("Another EISAX Studio build or desktop preparation is running. Wait for it to finish, then retry.");
-      }
-      await new Promise((resolve) => setTimeout(resolve, 750));
-    }
-  }
-}
+let release = () => {};
+let stopping = false;
+let shutdown = Promise.resolve();
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -74,15 +28,24 @@ function run(command, args) {
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(signal, () => {
-    child?.kill(signal);
-    releaseSync();
-    process.exit(130);
+    stopping = true;
+    if (child && process.platform === "win32") {
+      const pid = child.pid;
+      shutdown = new Promise(resolve => {
+        const killer = spawn("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+        killer.once("error", resolve);
+        killer.once("close", resolve);
+      });
+    } else if (child) child.kill(signal);
+    // The awaited child close handler runs before finally releases our lock.
+    else { release(); process.exit(130); }
   });
 }
-process.on("exit", releaseSync);
 
 try {
-  await acquire();
+  release = await acquireBuildLock(root);
+  if (stopping) throw new Error("Build interrupted");
+  assertNoBuildRuntime(root);
   const nextBin = path.join(root, "node_modules", "next", "dist", "bin", "next");
   await run(process.execPath, [nextBin, "build"]);
   if (mode === "desktop") {
@@ -93,6 +56,6 @@ try {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 } finally {
-  released = false;
-  releaseSync();
+  await shutdown;
+  release();
 }
