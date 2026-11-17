@@ -112,6 +112,8 @@ export const slideShapeTypeSchema = z.enum([
 export type SlideShapeType = z.infer<typeof slideShapeTypeSchema>;
 
 export const slideElementSchema = z.object({
+  groupId: z.string().min(1).max(100).optional(),
+  locked: z.boolean().optional(),
   id: z.string().min(1),
   kind: slideElementKindSchema,
   x: z.number().min(-25).max(125),
@@ -182,6 +184,7 @@ export const documentBlockKindSchema = z.enum([
   "link",
   "image",
   "chart",
+  "pageBreak",
 ]);
 export type DocumentBlockKind = z.infer<typeof documentBlockKindSchema>;
 
@@ -190,6 +193,8 @@ export const pageLayoutSchema = z.object({
   orientation: z.enum(["portrait", "landscape"]).default("portrait"),
   margins: z.enum(["normal", "narrow", "wide"]).default("normal"),
   showPageNumbers: z.boolean().optional(),
+  headerText: z.string().max(200).optional(),
+  footerText: z.string().max(200).optional(),
 });
 export type PageLayout = z.infer<typeof pageLayoutSchema>;
 
@@ -197,6 +202,8 @@ export const documentBlockSchema = z.object({
   id: z.string().min(1),
   kind: documentBlockKindSchema,
   level: z.number().int().min(1).max(6).optional(),
+  lineHeight: z.number().min(1).max(3).optional(),
+  indent: z.number().min(0).max(200).optional(),
   text: z.string().max(20000).default(""),
   runs: z.array(inlineRunSchema).max(500).optional(),
   align: textAlignSchema.optional(),
@@ -205,6 +212,7 @@ export const documentBlockSchema = z.object({
   items: z.array(z.string().max(2000)).max(100).optional(),
   listRuns: z.array(z.array(inlineRunSchema).max(200)).max(100).optional(),
   rows: z.array(z.array(z.string().max(1000)).max(12)).max(50).optional(),
+  cellSpans: z.array(z.object({ row: z.number().int().min(0).max(49), col: z.number().int().min(0).max(11), rowspan: z.number().int().min(1).max(50), colspan: z.number().int().min(1).max(12) })).max(600).optional(),
   colWidths: z.array(z.number().min(3).max(95)).max(12).optional(),
   rowHeights: z.array(z.number().min(20).max(500)).max(50).optional(),
   widthPct: z.number().min(15).max(100).optional(),

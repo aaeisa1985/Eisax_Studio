@@ -1,0 +1,8 @@
+{
+  "name": "eisax-studio-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.cjs",
+  "description": "EISAX Studio local Office editor",
+  "author": "EISAX"
+}

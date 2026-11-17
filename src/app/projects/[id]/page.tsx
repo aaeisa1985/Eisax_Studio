@@ -1,3 +1,4 @@
+import { hasOriginal } from "@/lib/storage/originals";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -40,6 +41,7 @@ export default async function ProjectPage(props: { params: Promise<{ id: string 
   const content = (project.content ?? {}) as EditorProject["content"];
   return (
     <ProjectEditor
+      originalAvailable={await hasOriginal(id)}
       locale={locale}
       initialTheme={uiTheme}
       revisions={revisions.map((r) => ({ revisionNo: r.revisionNo, createdAt: r.createdAt.toISOString() }))}
@@ -49,6 +51,7 @@ export default async function ProjectPage(props: { params: Promise<{ id: string 
         type: project.type as "presentation" | "document",
         title: project.title,
         language: project.language,
+        updatedAt: project.updatedAt.toISOString(),
         content,
       }}
     />

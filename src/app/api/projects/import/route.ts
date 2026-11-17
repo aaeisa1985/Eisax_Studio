@@ -4,6 +4,7 @@ import { getCurrentUser, getPrimaryWorkspaceId } from "@/lib/auth/session";
 import { importDocx } from "@/lib/import/docx";
 import { importPptx } from "@/lib/import/pptx";
 import { createProject, updateProject } from "@/lib/projects/service";
+import { saveOriginal } from "@/lib/storage/originals";
 import { audit } from "@/lib/security/audit";
 import { rateLimit } from "@/lib/security/rateLimit";
 import { saveWorkspaceAsset } from "@/lib/storage/assets";
@@ -90,7 +91,9 @@ export async function POST(req: Request) {
       if (!created.ok) {
         return NextResponse.json({ error: created.error }, { status: 400 });
       }
-      await updateProject(user.id, created.id, { content: imported.content });
+      const saved = await updateProject(user.id, created.id, { content: imported.content });
+      if (!saved.ok) return NextResponse.json({ error: saved.error ?? "import_save_failed" }, { status: 500 });
+      await saveOriginal(created.id, bytes);
       await audit(user.id, "project.imported_docx", {
         projectId: created.id,
         blocks: imported.content.blocks.length,
@@ -116,7 +119,9 @@ export async function POST(req: Request) {
     if (!created.ok) {
       return NextResponse.json({ error: created.error }, { status: 400 });
     }
-    await updateProject(user.id, created.id, { content: imported.content });
+    const saved = await updateProject(user.id, created.id, { content: imported.content });
+    if (!saved.ok) return NextResponse.json({ error: saved.error ?? "import_save_failed" }, { status: 500 });
+    await saveOriginal(created.id, bytes);
     await audit(user.id, "project.imported_pptx", {
       projectId: created.id,
       slides: imported.content.slides.length,

@@ -200,3 +200,45 @@ Re-ran the full gate on a clean working tree (`git status` → 0 changes) after 
 - Live Chromium check on `http://localhost:3100` in Light Mode (`data-ui-theme="light"`):
   - Word Processor sticky ribbon verified bright & readable in Light mode, 15 fonts + `8pt–72pt` + `arabic-indic` numbering verified, `١٢٣↔123` converted `"2026"` -> `"٢٠٢٦"`, 3×3 table column/row resize persisted across reload, Chart block resized + updated live via `ChartDataEditor` (`"EISAX Performance 2026"` Line chart) and persisted across reload.
   - Slide Canvas verified in Light mode with `+ Table` & `# Slide #` controls, text box 8-handle resize & drag, 📊 Chart element persistence, and HTTP 200 `.pptx` download (`69,872` bytes) with zero console/server errors.
+
+
+## Local Office direction — 2026-11-15
+
+Product priority: open existing DOCX/PPTX, edit everyday content, save/export; AI is optional assistance.
+
+Implemented:
+- Office-focused landing/workspace; removed AI-first marketing and plan/AI quota badge from the workspace header. Existing editor tools and optional AI retained.
+- `npm run build` then `npm run local`: production server bound to 127.0.0.1, separate personal local profile without account creation. `npm run local:dev` is available for development. Hosted account mode remains available through the existing commands. Local mode is intended only for personal loopback use.
+- Serialized content/title/language saves, explicit Save/Ctrl+S, flush before dashboard/export/PDF/revision restore, and browser warning while edits are unsaved. Failures remain visible and block controlled navigation/export.
+- Project update + revision insertion + retention now run in one transaction with a project row lock. Database initialization shares one pending promise.
+- New imports retain immutable original bytes with an authenticated download endpoint. Original preservation is separate from Office feature preservation in edited exports. Older imports have no recoverable original unless reimported.
+- Import responses check whether saving imported content succeeded.
+
+Verification this pass:
+- TypeScript check passed.
+- Vitest: 55 passed, 0 failed. Added concurrent local-profile/revision and immutable-original/traversal coverage.
+- Production Next build passed.
+- Production local HTTP smoke using isolated `EISAX_PG_DATA_DIR=pg-office-smoke`: 3 concurrent anonymous dashboard requests returned 200; DOCX and PPTX import succeeded; downloaded originals exactly matched uploaded bytes; both export endpoints returned 200; imported editor rendered original download link. No external AI calls were made. Review server was stopped afterward.
+
+Not verified: interactive browser save/keyboard/navigation flows and visual fidelity inside Microsoft Word/PowerPoint. Round-trip tests cover supported structures, not arbitrary Office files. No native desktop packaging, crash draft recovery, full offline browser navigation, or lossless preservation of unsupported OOXML is claimed. Downloads save an exported copy; edits do not overwrite the source file on disk.
+
+
+## Pagination and clean print output — 2026-11-16
+
+- Added view-only, measured text-line page spacers to the Word editor, respecting physical A4/Letter dimensions, orientation and 0.5/1/1.5-inch margins shared with DOCX. Spacers do not become saved document nodes. Recalculates on content/layout/image/font changes. Paper outlines do not reduce printable content width.
+- Removed the print view's injected project title, EISAX branding/date, divider and automatic slide label. Only document content and explicitly enabled numbering are printed. Print CSS uses configured document paper or 16:9 slides, hides preview controls and avoids a trailing slide break.
+- Ctrl+P in the editor flushes saves before opening clean print; printing waits for fonts/images. Browser-generated headers/footers remain a browser setting, with screen-only guidance.
+- Validation: TypeScript passed; 60 Vitest tests passed including new physical-size/DOCX-margin checks. Browser DOM and Chromium-generated PDF verified using a synthetic 70-paragraph bilingual document: portrait editor and PDF both 5 pages; landscape editor and PDF both 8 pages; 70 body paragraphs preserved and no injected EISAX brand in main print content. Screenshots were unavailable in the browser backend. Development review used a separate pg-pagination-review database and was stopped after checks.
+- Limitation: oversized tables/atomic blocks are not split into multiple editable page fragments; the editor discloses this. Arbitrary Word/PDF visual equivalence is not claimed.
+`npm run build` also completed successfully for this pagination/print change.
+
+
+## Everyday Office upgrades — 2026-11-16
+
+Implemented desktop Electron shell with loopback server, per-launch authentication, isolated user data, native file selection/save-as, original-overwrite warning, recent OS files and direct printToPDF. Standalone artifact preparation excludes environment files. Browser mode retains existing downloads/print preview.
+Added browser draft recovery and optimistic updatedAt conflict checks; AI generation now returns content for editor approval/save rather than replacing server content behind its revision token.
+Word: search/replace/replace all, spacing/indent, clear formatting, zoom, manual page breaks, simple headers/footer, rectangular merged cells with editor/DOCX/import/print persistence. Slides: multi-selection, group metadata, locks, alignment/distribution, snap guides, format painter, keyboard presentation. PPTX grouping remains separate editable objects; long tables still cross approximate editor page boundaries and table cell rich formatting is not preserved.
+Verification: 69 tests passed; production build/desktop preparation passed. Hidden real Electron smoke launched server, imported synthetic Arabic DOCX, rejected unauthenticated original request (401), generated 39,613-byte PDF and exited successfully. Browser presentation next/exit passed; complete interactive desktop dialogs, recovery UX, and Microsoft Office visual verification are not yet established. Synthetic fixture acceptance guide is docs/OFFICE-ACCEPTANCE.md.
+
+Windows packaging follow-up: initial installer omitted the standalone node_modules directory. Added an explicit extraResources mapping and excluded duplicate app dependencies. Developer Electron smoke passed; packaged executable smoke remained unverified due to its test-profile lock, and automatic review rejected deleting that lock. Installer compression was still running at the last check; do not treat the earlier installer as verified.
+Installer rebuild did not complete in this pass; stopped packaging and marked the earlier installer unverified. Use npm run desktop for the verified developer runtime. Do not distribute the installer as validated.

@@ -1,20 +1,18 @@
 import type { SlideTheme } from "@/lib/projects/themes";
 import type { SlideElement, SlideItem } from "@/lib/validation/projects";
 
-function elUid(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-}
-
 /**
  * Convert legacy structured slide fields (`title`, `subtitle`, `bullets`, `chart`, `imageAssetId`)
  * into positioned free-form SlideElement[] so every slide can be directly dragged, resized,
  * layered, and edited on the 16:9 canvas.
  */
 export function slideToCanvasElements(slide: SlideItem, theme: SlideTheme): SlideElement[] {
-  if (slide.elements && slide.elements.length > 0) {
+  if (slide.elements) {
     return slide.elements;
   }
 
+  let sequence = 0;
+  const elUid = (prefix: string) => `${slide.id}-${prefix}-${sequence++}`;
   const rtl = slide.dir === "rtl";
   const align = slide.layout === "quote" ? "center" : rtl ? "right" : "left";
   const hasVisual = Boolean(slide.chart || slide.imageAssetId);

@@ -44,20 +44,32 @@ Status legend: ☐ pending · ◐ in progress · ☑ done (see STATUS.md for evi
 - [x] Stripe webhook signature verification & checkout guard behind disabled `FEATURE_BILLING=false` flag (no charges)
 - [x] Dockerfile, compose, staging deploy docs (no production deploy)
 
-## Phase 6 — Genuine Microsoft Office Alternative (Word + PowerPoint + DOCX/PPTX Round-Trip) ☑
+## Phase 6 — Everyday DOCX/PPTX editing foundation ◐
 - [x] Refocus UX on blank documents/presentations and opening existing `.docx` / `.pptx` files directly (AI is optional)
 - [x] Continuous WYSIWYG Word processor (`WordProcessor.tsx` on TipTap v3 + `.eisax-word-prose`) with rich formatting ribbon, tables, lists, images, links, page layout (A4/Letter, Portrait/Landscape, margins), per-paragraph RTL/LTR, and Undo/Redo
 - [x] Interactive 16:9 Slide Canvas editor (`SlideCanvasEditor.tsx`) with draggable/resizable text boxes, inline editing, shapes (`rect`, `roundRect`, `ellipse`, `triangle`, `line`, `arrow`), images, charts, z-index layering, speaker notes, and slide management
 - [x] Real OOXML `.docx` & `.pptx` import (`src/lib/import/docx.ts`, `src/lib/import/pptx.ts`) + `POST /api/projects/import` + round-trip export fidelity & explicit `fidelityWarnings`
-- [x] Automated DOCX/PPTX import → edit → export → reopen round-trip tests and live browser E2E verification
+- [x] Automated DOCX/PPTX import → edit → export → reopen round-trip tests and live browser E2E verification (application-level checks only; not proof of Office compatibility)
 
-## Phase 7 — Mixed Arabic/English Bidi, Light/Dark Themes & Fullscreen Standalone PWA ☑
+## Phase 7 — Mixed Arabic/English Bidi, Light/Dark Themes & PWA groundwork ◐
 - [x] UAX #9 first-strong auto-RTL + `unicode-bidi: plaintext` across TipTap Word & 16:9 Slide Canvas editors, PDF print view, DOCX (`<w:bidi/>` + `START`/`END` + per-run `w:rtl`), and PPTX (`rtl="1"` per run)
 - [x] Crisp Light Mode & Dark Mode toggle (`ThemeSwitcher`, cookie + SSR `data-ui-theme`) across Landing, Dashboard, and Editors
-- [x] Installable standalone fullscreen PWA (`/manifest.webmanifest`, `/sw.js`, PNG/maskable icons, `PwaInstallButton`, edge-to-edge `FullscreenButton`)
+- [x] Installable PWA assets and controls exist; offline completeness and native desktop behavior are not claimed
 
 ## Phase 8 — Rich Media/Chart/Table Line-Drag Controls, Light Ribbon & Bilingual Typography ☑
 - [x] Light Mode sticky ribbon, `<select>` options, and alert/banner contrast fixes (`WordProcessor.tsx`, `SlideCanvasEditor.tsx`, `AiAssist.tsx`, `globals.css`)
 - [x] 8-handle resizing, edge crop bars + numeric crop (`<a:srcRect>` OOXML), rotation, alignment, and live `<ChartDataEditor>` across Word & Slides
 - [x] Table column + horizontal row border drag resizing in Word (`colWidths`/`rowHeights`) and native draggable `kind: "table"` element in Slide Canvas + PPTX/DOCX/Print sync
 - [x] 15 Arabic/Latin fonts, `8pt–72pt` / `8–72px` sizes, 10 numbering/bullet styles (`arabic-indic`, `arabic`, roman, alpha, bullets), `١٢٣↔123` digit script converter, and slide/page numbering toggles
+
+## Compatibility and scope
+
+EISAX Studio targets common everyday tasks (the practical 80/20), not complete Word/PowerPoint parity. Application tests establish that the app can import, edit, export, and reopen its supported content; real Office behavior still needs compatibility verification.
+
+| Area | Implemented in the app | Needs real Office verification |
+|---|---|---|
+| DOCX | Import/export, common text formatting, headings, lists, tables, links, images, RTL and mixed direction | Word rendering, pagination, fonts, complex tables, embedded objects, tracked changes, and round-trip preservation |
+| PPTX | Import/export, slide text and shapes, images, charts, tables, notes, and basic layout editing | PowerPoint rendering, fonts, animations, transitions, SmartArt, embedded media/objects, and round-trip preservation |
+| Local profile | `npm run local` on loopback, no login, separate personal profile; original imports retained; serialized saves and Ctrl+S flush | Recovery behavior under interrupted writes and broader supported-file compatibility |
+
+Do not describe this milestone as a “Genuine Microsoft Office Alternative” or imply full-fidelity compatibility.

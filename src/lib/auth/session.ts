@@ -1,8 +1,10 @@
 import { cookies } from "next/headers";
+import { headers } from "next/headers";
 import { eq, and, gt, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { sessions, users, workspaces, workspaceMembers } from "@/lib/db/schema";
 import { hashSessionToken, newSessionToken } from "./password";
+import { LOCAL_MODE, getLocalUser } from "./local";
 
 export const SESSION_COOKIE = "eisax_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -48,6 +50,15 @@ export async function destroySession(): Promise<void> {
 
 /** Resolve the signed-in user (server-side only). Returns null when anonymous. */
 export async function getCurrentUser(): Promise<SessionUser | null> {
+  if (LOCAL_MODE) {
+    const token = process.env.EISAX_DESKTOP_TOKEN;
+    if (token) {
+      const jar = await cookies();
+      const requestHeaders = await headers();
+      if (jar.get("eisax_desktop")?.value !== token && requestHeaders.get("x-eisax-desktop") !== token) return null;
+    }
+    return getLocalUser();
+  }
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token) return null;

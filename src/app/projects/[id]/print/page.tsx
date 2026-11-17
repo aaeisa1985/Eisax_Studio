@@ -1,5 +1,4 @@
 import { cookies } from "next/headers";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser, getPrimaryWorkspaceId } from "@/lib/auth/session";
 import { getProject } from "@/lib/projects/service";
@@ -10,6 +9,8 @@ import { LOCALE_COOKIE, getLocale } from "@/lib/i18n";
 import { PrintButton } from "@/components/PrintButton";
 import { SlideChart } from "@/components/SlideChart";
 import { croppedImageCss, formatDisplayNumber } from "@/lib/utils/mediaStyle";
+import { getPageGeometry } from "@/lib/document/pageGeometry";
+import styles from "./print.module.css";
 import type {
   DocumentBlock,
   InlineRun,
@@ -281,34 +282,17 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
   };
   const theme = resolveSlideTheme(content.theme);
   const layout = content.pageLayout ?? { size: "a4", orientation: "portrait", margins: "normal" };
-  const docMaxWidth =
-    layout.orientation === "landscape"
-      ? 1060
-      : layout.size === "letter"
-        ? 816
-        : 794;
-  const docPaddingX = layout.margins === "narrow" ? 28 : layout.margins === "wide" ? 72 : 48;
+  const page = getPageGeometry(layout);
+  const pageRule = project.type === "document"
+    ? `@page { size: ${page.widthPx}px ${page.heightPx}px; margin: ${page.marginPx}px; ${layout.headerText ? `@top-center { content: ${JSON.stringify(layout.headerText)}; font-size: 9pt; }` : ''} ${layout.showPageNumbers || layout.footerText ? `@bottom-center { content: ${layout.footerText ? JSON.stringify(layout.footerText) : '""'} ${layout.showPageNumbers ? 'counter(page)' : ''}; font-size: 9pt; color: #64748b; }` : ''} }`
+    : "@page { size: 1280px 720px; margin: 0; }";
 
   return (
-    <div style={{ background: "#fff", color: "#17222e", minHeight: "100vh" }}>
+    <div className={styles.root}>
       <PrintButton projectId={project.id} />
-      <main
-        className="mx-auto pb-20"
-        style={{
-          maxWidth: project.type === "document" ? docMaxWidth : 960,
-          paddingInline: project.type === "document" ? docPaddingX : 32,
-        }}
-      >
-        <h1 style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }} dir="auto">
-          {project.title}
-        </h1>
-        <p style={{ fontSize: 12, color: "#5a6a7a" }}>
-          EISAX Studio · {new Date().toLocaleDateString(ar ? "ar" : "en-GB", { dateStyle: "long" })}
-        </p>
-        <hr style={{ margin: "18px 0", borderColor: "#e2e8f0" }} />
-
+      <main className={`${styles.content} ${project.type === "document" ? `${styles.document} eisax-word-prose` : ""}`}>
         {project.type === "presentation" ? (
-          <div className="print-slides space-y-6">
+          <div className={styles.slides}>
             {(content.slides ?? []).map((s, i) => {
               const hasFreeform = Array.isArray(s.elements);
               const slideBg = s.bgColor ? `#${s.bgColor.replace(/^#/, "")}` : `#${theme.bgHex}`;
@@ -317,9 +301,8 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                 return (
                   <section
                     key={s.id}
-                    className="print-slide relative overflow-hidden rounded-xl border"
+                    className={`${styles.slide} print-slide`}
                     style={{
-                      aspectRatio: "16 / 9",
                       width: "100%",
                       pageBreakInside: "avoid",
                       breakInside: "avoid",
@@ -352,10 +335,11 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
               return (
                 <section
                   key={s.id}
-                  className="print-slide relative rounded-xl border p-8"
+                  className={`${styles.slide} print-slide`}
                   style={{
                     pageBreakInside: "avoid",
                     breakInside: "avoid",
+                    aspectRatio: "16 / 9",
                     background: accent === "card" ? `#${theme.cardBgHex}` : slideBg,
                     color: `#${theme.titleHex}`,
                     borderColor: `#${theme.borderHex}`,
@@ -390,9 +374,6 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                       }}
                     />
                   )}
-                  <p style={{ fontSize: 10, color: `#${theme.subtitleHex}`, marginBottom: 6 }}>
-                    {ar ? `شريحة ${i + 1}` : `Slide ${i + 1}`}
-                  </p>
                   <div
                     style={{
                       display: s.chart || s.imageAssetId ? "grid" : "block",
@@ -458,6 +439,11 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                       </div>
                     )}
                   </div>
+                  {content.showSlideNumbers && (
+                    <span style={{ position: "absolute", bottom: 8, insetInlineEnd: 12, fontSize: 10, color: `#${theme.subtitleHex}` }}>
+                      {formatDisplayNumber(i + 1, s.dir === "rtl" || ar)}
+                    </span>
+                  )}
                 </section>
               );
             })}
@@ -467,23 +453,24 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
             {(content.blocks ?? []).map((b) => {
               const alignStyle: React.CSSProperties = {
                 textAlign: b.align ?? (b.dir === "rtl" ? "right" : "left"),
+                ...(b.lineHeight ? { lineHeight: b.lineHeight } : {}),
+                ...(b.indent ? { marginInlineStart: b.indent } : {}),
               };
               const blockDir = b.dir === "rtl" ? "rtl" : "ltr";
 
+              if (b.kind === "pageBreak") return <div key={b.id} style={{ breakAfter: "page" }} />;
               if (b.kind === "heading") {
+                const Heading = `h${Math.min(6, Math.max(1, b.level ?? 2))}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
                 return (
-                  <h2
+                  <Heading
                     key={b.id}
                     style={{
                       ...alignStyle,
-                      fontSize: b.level === 1 ? 22 : b.level === 3 ? 16 : b.level === 4 ? 14 : 19,
-                      fontWeight: 700,
-                      margin: "18px 0 6px",
                     }}
                     dir={blockDir}
                   >
                     <InlineRunsText text={b.text} runs={b.runs} />
-                  </h2>
+                  </Heading>
                 );
               }
               if (b.kind === "list") {
@@ -554,8 +541,14 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                             height: b.rowHeights?.[rIdx] ? `${b.rowHeights[rIdx]}px` : undefined,
                           }}
                         >
-                          {row.map((cell, cIdx) => (
+                          {row.map((cell, cIdx) => {
+                            const covered = (b.cellSpans ?? []).some(span => rIdx >= span.row && rIdx < span.row + span.rowspan && cIdx >= span.col && cIdx < span.col + span.colspan && (rIdx !== span.row || cIdx !== span.col));
+                            const span = b.cellSpans?.find(s => s.row === rIdx && s.col === cIdx);
+                            if (covered) return null;
+                            return (
                             <td
+                              rowSpan={span?.rowspan}
+                              colSpan={span?.colspan}
                               key={cIdx}
                               style={{
                                 border: "1px solid #cbd5e1",
@@ -566,7 +559,7 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                             >
                               {cell}
                             </td>
-                          ))}
+                          ); })}
                         </tr>
                       ))}
                     </tbody>
@@ -654,7 +647,7 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
                 );
               }
               return (
-                <p key={b.id} style={{ ...alignStyle, fontSize: 13, lineHeight: 1.9, margin: "6px 0" }} dir={blockDir}>
+                <p key={b.id} style={alignStyle} dir={blockDir}>
                   <InlineRunsText text={b.text} runs={b.runs} />
                 </p>
               );
@@ -662,16 +655,7 @@ export default async function ProjectPrintPage(props: { params: Promise<{ id: st
           </article>
         )}
       </main>
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-          body { background: #fff !important; }
-          .print-slide { page-break-after: always; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        }
-      `}</style>
-      <noscript>
-        <Link href={`/projects/${project.id}`}>Back</Link>
-      </noscript>
+      <style>{`${pageRule}\n@media print { html, body { margin: 0 !important; padding: 0 !important; background: white !important; color: #17222e !important; } .no-print, nextjs-portal { display: none !important; } }`}</style>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { signOutAction } from "@/lib/auth/actions";
 import { getCurrentUser, getPrimaryWorkspaceId } from "@/lib/auth/session";
 import { listProjects } from "@/lib/projects/service";
 import { getMonthlyUsage } from "@/lib/billing/usage";
-import { BILLING_ENABLED } from "@/lib/billing/plans";
+import { LOCAL_MODE } from "@/lib/auth/local";
 import { LOCALE_COOKIE, getLocale, t } from "@/lib/i18n";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
@@ -40,21 +40,8 @@ export default async function DashboardPage(props: {
             EISAX&nbsp;Studio
           </Link>
           <div className="flex items-center gap-3">
-            <span
-              className="hidden rounded-full border px-3 py-1 text-xs sm:inline-flex"
-              style={{ borderColor: "var(--border-strong)", color: "var(--text-dim)" }}
-              title={
-                BILLING_ENABLED
-                  ? undefined
-                  : ar
-                    ? "الفوترة معطّلة (خطة مجانية)"
-                    : "Billing disabled (Free plan active)"
-              }
-            >
-              {ar ? "الخطة:" : "Plan:"}&nbsp;
-              <strong style={{ color: "var(--turquoise)" }}>{usage.planId.toUpperCase()}</strong>
-              &nbsp;·&nbsp;
-              {ar ? "AI:" : "AI:"} {usage.used}/{usage.limit}
+            <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+              {LOCAL_MODE ? (ar ? "ملفات على هذا الجهاز" : "Files on this device") : (ar ? "مساحة العمل" : "Workspace")}
             </span>
             <PwaInstallButton locale={locale} />
             <ThemeSwitcher initialTheme={uiTheme} locale={locale} />
@@ -63,18 +50,19 @@ export default async function DashboardPage(props: {
             <span className="hidden text-sm sm:inline" style={{ color: "var(--text-dim)" }} dir="auto">
               {user.displayName}
             </span>
-            <form action={signOutAction}>
+            {!LOCAL_MODE && <form action={signOutAction}>
               <button type="submit" className="btn btn-ghost text-sm">
                 {tr("signOut")}
               </button>
-            </form>
+            </form>}
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-5 py-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <h1 className="text-3xl font-bold">{tr("dashboardTitle")}</h1>
+          <div><h1 className="text-3xl font-bold">{ar ? "مستنداتك وعروضك" : "Documents & presentations"}</h1>
+            <p className="mt-2 text-sm" style={{ color: "var(--text-dim)" }}>{ar ? "افتح ملفًا أو ابدأ بصفحة فارغة. أدوات التحرير أولًا، ومساعد ذكي عند الحاجة." : "Open a file or start blank. Everyday editing, with AI assistance when you need it."}</p></div>
           <CreateProjectDialog locale={locale} initialUsage={{ used: usage.used, limit: usage.limit }} />
         </div>
 

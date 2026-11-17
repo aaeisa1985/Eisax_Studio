@@ -104,6 +104,16 @@ export async function updateProjectContentAction(
   return updateProject(user.id, projectId, { content });
 }
 
+export async function saveProjectAction(
+  projectId: string,
+  input: { title: string; language: string; content: unknown },
+  expectedUpdatedAt?: string,
+): Promise<{ ok: boolean; error?: string; updatedAt?: string }> {
+  const user = await requireUser();
+  if (!rateLimit(`save:${user.id}`, 120, 60_000).ok) return { ok: false, error: "rate_limited" };
+  return updateProject(user.id, projectId, input, expectedUpdatedAt);
+}
+
 export async function updateProjectMetaAction(
   projectId: string,
   meta: { title?: string; language?: string },

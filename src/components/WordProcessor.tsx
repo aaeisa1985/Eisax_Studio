@@ -14,6 +14,8 @@ import { SlideChart } from "@/components/SlideChart";
 import { AiGeneratePanel, AiMenu } from "@/components/AiAssist";
 import { ChartDataEditor, CropControlsBar } from "@/components/MediaControls";
 import { blocksToTiptapDoc, tiptapDocToBlocks } from "@/lib/document/tiptapSync";
+import { getPageGeometry } from "@/lib/document/pageGeometry";
+import { paginationExtension } from "@/components/wordPagination";
 import {
   DOC_FONT_SIZES,
   LIST_STYLE_OPTIONS,
@@ -42,6 +44,13 @@ const BlockFormattingExtension = Extension.create({
         },
       },
       {
+        types: ["paragraph", "heading"],
+        attributes: {
+          lineHeight: { default: null, renderHTML: a => a.lineHeight ? { style: `line-height: ${a.lineHeight}` } : {} },
+          indent: { default: null, renderHTML: a => a.indent ? { style: `margin-inline-start: ${a.indent}px` } : {} },
+        },
+      },
+      {
         types: ["bulletList", "orderedList"],
         attributes: {
           listStyle: {
@@ -54,6 +63,12 @@ const BlockFormattingExtension = Extension.create({
       },
     ];
   },
+});
+
+const PageBreak = Node.create({
+  name: "pageBreak", group: "block", atom: true,
+  parseHTML() { return [{ tag: 'div[data-page-break]' }]; },
+  renderHTML() { return ["div", { "data-page-break": "", contenteditable: "false", style: "border-top: 1px dashed #94a3b8; margin: 12px 0; text-align: center; color: #64748b; font-size: 11px" }, "Page break / فاصل صفحة"]; },
 });
 
 /** Swap a top-level block node up (-1) or down (+1) in the ProseMirror document. */
@@ -687,6 +702,9 @@ export function WordProcessor({
     margins: "normal",
   };
 
+  const [zoom, setZoom] = useState(100);
+  const [find, setFind] = useState("");
+  const [replace, setReplace] = useState("");
   const [uploading, setUploading] = useState(false);
   const [selectedText, setSelectedText] = useState("");
   const [showWarnings, setShowWarnings] = useState(true);
@@ -696,6 +714,8 @@ export function WordProcessor({
 
   const lastExternalVersionRef = useRef(externalVersion);
   const paperRef = useRef<HTMLDivElement | null>(null);
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -704,6 +724,7 @@ export function WordProcessor({
         heading: { levels: [1, 2, 3, 4] },
       }),
       BlockFormattingExtension,
+      PageBreak,
       Underline,
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       TextStyleKit,
@@ -718,11 +739,12 @@ export function WordProcessor({
       TableHeader,
       TableCell,
       EisaxChartNode,
+      paginationExtension(() => layoutRef.current),
     ],
     content: blocksToTiptapDoc(blocks),
     editorProps: {
       attributes: {
-        class: "eisax-word-prose outline-none min-h-[760px]",
+        class: "eisax-word-prose outline-none",
         dir: language === "ar" ? "rtl" : "auto",
       },
     },
@@ -739,6 +761,10 @@ export function WordProcessor({
       setTick((n) => n + 1);
     },
   });
+
+  useEffect(() => {
+    editor?.view.dom.dispatchEvent(new Event("eisax-layout-change"));
+  }, [editor, layout.size, layout.orientation, layout.margins, layout.showPageNumbers]);
 
   // Sync external mutations (revision restore, parent undo/redo, AI replace)
   useEffect(() => {
@@ -969,20 +995,7 @@ export function WordProcessor({
     ? editor.getText().trim().split(/\s+/).filter(Boolean).length
     : blocks.reduce((acc, b) => acc + (b.text?.split(/\s+/).filter(Boolean).length ?? 0), 0);
 
-  const paperMaxWidth =
-    layout.orientation === "landscape"
-      ? layout.size === "letter"
-        ? "1056px"
-        : "1122px"
-      : layout.size === "letter"
-        ? "816px"
-        : "794px";
-  const paperPadding =
-    layout.margins === "narrow"
-      ? "28px 32px"
-      : layout.margins === "wide"
-        ? "72px 84px"
-        : "54px 64px";
+  const geometry = getPageGeometry(layout);
 
   const activeBlockStyle = !editor
     ? "paragraph"
@@ -1315,6 +1328,8 @@ export function WordProcessor({
             <button type="button" className="btn btn-ghost !px-2 !py-0.5 text-xs" onClick={() => editor.chain().focus().deleteColumn().run()}>
               − {ar ? "حذف عمود" : "Del col"}
             </button>
+            <button type="button" className="btn btn-ghost !px-2 !py-0.5 text-xs" disabled={!editor.can().mergeCells()} onClick={() => editor.chain().focus().mergeCells().run()}>{ar ? "دمج الخلايا" : "Merge cells"}</button>
+            <button type="button" className="btn btn-ghost !px-2 !py-0.5 text-xs" disabled={!editor.can().splitCell()} onClick={() => editor.chain().focus().splitCell().run()}>{ar ? "تقسيم الخلية" : "Split cell"}</button>
             <select
               value={String(editor.getAttributes("table").widthPct ?? 100)}
               onChange={(e) =>
@@ -1364,6 +1379,65 @@ export function WordProcessor({
           </div>
         )}
 
+        <div className="mt-2 flex flex-wrap items-center gap-2 border-t pt-2 text-xs" style={{ borderColor: "var(--border)" }}>
+          <input className="input !w-32 !py-1" aria-label={ar ? "بحث" : "Find"} placeholder={ar ? "بحث" : "Find"} value={find} onChange={e => setFind(e.target.value)} />
+          <input className="input !w-32 !py-1" aria-label={ar ? "استبدال" : "Replace"} placeholder={ar ? "استبدال" : "Replace"} value={replace} onChange={e => setReplace(e.target.value)} />
+          <button type="button" className="btn btn-ghost !py-1 text-xs" disabled={!find} onClick={() => {
+            if (!editor || !find) return;
+            const matches: { from: number; to: number }[] = [];
+            const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            editor.state.doc.descendants((node, pos) => {
+              if (!node.isTextblock) return;
+              let text = ""; const positions: number[] = [];
+              node.descendants((child, offset) => {
+                if (child.isText && child.text) {
+                  for (let i = 0; i < child.text.length; i++) { text += child.text[i]; positions.push(pos + 1 + offset + i); }
+                } else if (child.isLeaf) { text += "\n"; positions.push(pos + 1 + offset); }
+              });
+              for (const match of text.matchAll(new RegExp(escaped, "giu"))) {
+                const from = positions[match.index]; const last = positions[match.index + match[0].length - 1];
+                if (from !== undefined && last !== undefined) matches.push({ from, to: last + 1 });
+              }
+              return false;
+            });
+            const next = matches.find(m => m.from >= editor.state.selection.to) ?? matches[0];
+            if (next) editor.chain().focus().setTextSelection(next).scrollIntoView().run();
+          }}>{ar ? "التالي" : "Find next"}</button>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" disabled={!find} onClick={() => {
+            if (!editor || !find) return;
+            const matches: { from: number; to: number }[] = [];
+            const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            editor.state.doc.descendants((node, pos) => {
+              if (!node.isTextblock) return;
+              let text = ""; const positions: number[] = [];
+              node.descendants((child, offset) => {
+                if (child.isText && child.text) {
+                  for (let i = 0; i < child.text.length; i++) { text += child.text[i]; positions.push(pos + 1 + offset + i); }
+                } else if (child.isLeaf) { text += "\n"; positions.push(pos + 1 + offset); }
+              });
+              for (const match of text.matchAll(new RegExp(escaped, "giu"))) {
+                const from = positions[match.index]; const last = positions[match.index + match[0].length - 1];
+                if (from !== undefined && last !== undefined) matches.push({ from, to: last + 1 });
+              }
+              return false;
+            });
+            if (!matches.length) return;
+            let tr = editor.state.tr;
+            for (const match of matches.reverse()) tr = tr.insertText(replace, match.from, match.to);
+            editor.view.dispatch(tr.scrollIntoView());
+            editor.commands.focus();
+          }}>{ar ? "استبدال الكل" : "Replace all"}</button>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" disabled={!find} onClick={() => {
+            if (!editor || !find) return; const { from, to } = editor.state.selection;
+            if (editor.state.doc.textBetween(from, to).toLocaleLowerCase() === find.toLocaleLowerCase()) editor.chain().focus().insertContentAt({ from, to }, replace).run();
+          }}>{ar ? "استبدال المحدد" : "Replace selected"}</button>
+          <select className="input !w-auto !py-1 text-xs" aria-label={ar ? "تباعد الأسطر" : "Line spacing"} defaultValue="" onChange={e => { const value = Number(e.target.value); if (value) editor?.chain().focus().updateAttributes(editor.isActive("heading") ? "heading" : "paragraph", { lineHeight: value }).run(); }}><option value="">{ar ? "تباعد الأسطر" : "Line spacing"}</option><option value="1">1.0</option><option value="1.5">1.5</option><option value="2">2.0</option></select>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" onClick={() => { if (!editor) return; const type = editor.isActive("heading") ? "heading" : "paragraph"; editor.chain().focus().updateAttributes(type, { indent: Math.min(200, Number(editor.getAttributes(type).indent || 0) + 24) }).run(); }}>{ar ? "زيادة المسافة" : "Indent +"}</button>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" onClick={() => { if (!editor) return; const type = editor.isActive("heading") ? "heading" : "paragraph"; editor.chain().focus().updateAttributes(type, { indent: Math.max(0, Number(editor.getAttributes(type).indent || 0) - 24) }).run(); }}>{ar ? "تقليل المسافة" : "Indent −"}</button>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" onClick={() => { if (!editor) return; editor.chain().focus().unsetAllMarks().clearNodes().updateAttributes("paragraph", { lineHeight: null, indent: null }).run(); }}>{ar ? "مسح التنسيق" : "Clear formatting"}</button>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" onClick={() => editor?.chain().focus().insertContent({ type: "pageBreak" }).run()}>{ar ? "فاصل صفحة" : "Page break"}</button>
+          <label>{ar ? "تكبير" : "Zoom"} <select className="input !w-auto !py-1" value={zoom} onChange={e => setZoom(Number(e.target.value))}>{[50,75,100,125,150].map(z => <option key={z} value={z}>{z}%</option>)}</select></label>
+        </div>
         {/* Page Layout Controls + Word Count */}
         <div
           className="mt-2 flex flex-wrap items-center gap-3 border-t pt-2 text-xs"
@@ -1408,6 +1482,8 @@ export function WordProcessor({
             />
             <span>{ar ? "ترقيم الصفحات" : "Page #"}</span>
           </label>
+          <input className="input !w-32 !py-0.5" aria-label={ar ? "رأس الصفحة" : "Header text"} placeholder={ar ? "رأس الصفحة" : "Header text"} value={layout.headerText ?? ""} onChange={e => onPageLayoutChange({ ...layout, headerText: e.target.value.slice(0, 200) })} />
+          <input className="input !w-32 !py-0.5" aria-label={ar ? "تذييل الصفحة" : "Footer text"} placeholder={ar ? "تذييل الصفحة" : "Footer text"} value={layout.footerText ?? ""} onChange={e => onPageLayoutChange({ ...layout, footerText: e.target.value.slice(0, 200) })} />
           <span className="ms-auto tabular-nums">
             {ar ? `${wordCount} كلمة` : `${wordCount} words`}
           </span>
@@ -1431,18 +1507,27 @@ export function WordProcessor({
       )}
 
       {/* Continuous Paper Document Surface (Paper stays crisp white like MS Word) */}
+      <p className="mt-3 text-center text-xs" style={{ color: "var(--text-dim)" }}>
+        {ar
+          ? "فواصل الصفحات تقديرية أثناء التحرير؛ قد تمتد الجداول الكبيرة عبر الفاصل. راجع معاينة الطباعة للترقيم والتخطيط النهائي."
+          : "Page breaks are approximate while editing; large tables may cross a break. Check print preview for final layout and numbering."}
+      </p>
       <div className="overflow-x-auto py-4">
         <div
           ref={paperRef}
-          className="relative mx-auto rounded-lg border bg-white text-slate-900 shadow-xl transition-all"
+          data-eisax-paper
+          className="relative mx-auto bg-white text-slate-900 shadow-xl"
           style={{
-            width: "100%",
-            maxWidth: paperMaxWidth,
-            padding: paperPadding,
-            borderColor: "#cbd5e1",
+            zoom: `${zoom}%`,
+            width: geometry.widthPx,
+            minHeight: geometry.heightPx,
+            padding: geometry.marginPx,
+            boxSizing: "border-box",
+            outline: "1px solid #cbd5e1",
           }}
         >
           <EditorContent editor={editor} />
+          {layout.showPageNumbers && <div data-page-number-last aria-hidden style={{ position: "absolute", bottom: geometry.marginPx / 2, left: 0, right: 0, textAlign: "center", color: "#94a3b8", fontSize: 12, pointerEvents: "none" }}>1</div>}
           {rowGuideY !== null && (
             <div
               aria-hidden
@@ -1457,11 +1542,6 @@ export function WordProcessor({
                 zIndex: 40,
               }}
             />
-          )}
-          {layout.showPageNumbers && (
-            <div className="mt-6 border-t border-slate-200 pt-2 text-center text-xs text-slate-400">
-              {ar ? "صفحة ١" : "Page 1"}
-            </div>
           )}
         </div>
       </div>

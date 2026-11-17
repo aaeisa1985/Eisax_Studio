@@ -1,4 +1,5 @@
 "use client";
+import "@/lib/desktop";
 
 import { useEffect, useState } from "react";
 
@@ -81,6 +82,11 @@ export function FullscreenButton({
   const ar = locale === "ar";
 
   useEffect(() => {
+    if (window.eisaxDesktop?.fullscreen) {
+      const update = (value: boolean) => { setIsFull(value); onFullscreenChange?.(value); };
+      void window.eisaxDesktop.fullscreen().then(update);
+      return window.eisaxDesktop.onFullscreenChange(update);
+    }
     const onChange = () => {
       const fs = Boolean(document.fullscreenElement);
       setIsFull(fs);
@@ -92,6 +98,10 @@ export function FullscreenButton({
 
   async function toggle() {
     try {
+      if (window.eisaxDesktop?.fullscreen) {
+        await window.eisaxDesktop.fullscreen(!isFull);
+        return;
+      }
       if (!document.fullscreenElement) {
         if (document.documentElement.requestFullscreen) {
           await document.documentElement.requestFullscreen();
@@ -120,7 +130,7 @@ export function FullscreenButton({
       data-testid="fullscreen-toggle"
     >
       {isFull ? "🗗" : "⛶"}{" "}
-      <span className="hidden md:inline">
+      <span>
         {isFull ? (ar ? "إنهاء" : "Exit Fullscreen") : ar ? "ملء الشاشة" : "Fullscreen"}
       </span>
     </button>

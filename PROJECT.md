@@ -1,7 +1,7 @@
 # EISAX Studio | OpenCode Build Brief
 
 ## Your role
-You are the principal engineer, product designer, security engineer, and QA lead responsible for building **EISAX Studio**, an AI-first, subscription-based SaaS for the general public. Work as an autonomous coding agent, but never confuse a mock/demo with working product functionality.
+You are the principal engineer, product designer, security engineer, and QA lead responsible for building **EISAX Studio**, a lightweight local alternative for common everyday Word and PowerPoint work, with an optional AI assistant and a separate hosted account mode. Work as an autonomous coding agent, but never confuse a mock/demo with working product functionality.
 
 **Project:** EISAX Studio  
 **Tagline:** Describe it. Create it. Own it.  
@@ -12,7 +12,7 @@ You are the principal engineer, product designer, security engineer, and QA lead
 **Delivery:** Responsive web application, deployable independently on EISAX-managed infrastructure.
 
 ## Product thesis
-Do not recreate all of Microsoft Office. Let users describe what they need in natural language, generate a professional structured document or presentation, edit every element visually, and export to a real editable Office format. The product is **AI-first**, not an Office clone with an AI button.
+Help users handle the everyday 80/20 of Word and PowerPoint in a lightweight workspace. The primary journey is opening an existing `.docx` or `.pptx`, making common edits, and saving it. Creating a new document or presentation is also supported. AI is an optional assistant for drafting and editing; it must never be required for opening, editing, or saving files. Do not claim full Office fidelity, complete format coverage, native desktop behavior, or a complete offline PWA.
 
 Target users: students, professionals, founders, small businesses, educators, and teams. The experience should be accessible to nontechnical users.
 
@@ -30,7 +30,12 @@ Target users: students, professionals, founders, small businesses, educators, an
 
 ## Scope and sequencing
 
-### V1 (must ship first)
+### Core local product (must ship first)
+- `npm run local` starts Next.js bound to `127.0.0.1` with `EISAX_LOCAL_MODE=true`, using a personal local profile without login and a workspace separate from hosted accounts. `npm run dev` retains hosted-style accounts.
+- Open existing DOCX/PPTX, edit common content, and save back to Office formats. Preserve imported originals separately from working copies; serialize writes and flush pending saves on Ctrl+S.
+- Everyday document and slide editing, plus optional AI assistance. Clearly surface unsupported content and fidelity warnings.
+
+### Hosted product (separate mode)
 - Landing page with value proposition, transparent pricing, demo examples, FAQ, and sign-in buttons.
 - Authentication: email/password or a suitable secure auth library; email verification and password reset when the email provider is configured.
 - Responsive dashboard with recent projects, templates, create, rename, duplicate, delete, search, and simple folders (folders can be deferred if necessary).
@@ -50,8 +55,9 @@ Target users: students, professionals, founders, small businesses, educators, an
 - More templates, stronger formatting fidelity, imported PDF/DOCX/PPTX where feasible and clearly scoped.
 - Analytics, support portal, admin operations tools.
 
-### Explicitly out of scope for V1
+### Explicitly out of scope
 - Full spreadsheet editor, macro/VBA support, complex Office parity, real-time multiplayer co-editing, cloud marketplace, native mobile apps, unlimited AI generations, unbounded file storage, automated publishing to social platforms.
+- Full Microsoft Office fidelity, guaranteed preservation of every DOCX/PPTX feature, native desktop application behavior, and a complete offline PWA.
 
 ## Draft subscription model (configurable; NOT final pricing)
 - **Free:** $0. Limited AI projects per month, basic templates, PDF export, storage limit.

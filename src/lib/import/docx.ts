@@ -226,7 +226,7 @@ export async function importDocx(
   const warnings = new Set<string>();
   const zipNames = Object.keys(zip.files);
   if (zipNames.some((n) => /^word\/header\d+\.xml$/i.test(n) || /^word\/footer\d+\.xml$/i.test(n))) {
-    warnings.add("Headers and footers in this DOCX were not imported into editable body blocks.");
+    warnings.add("Headers and footers are simplified to plain text; advanced formatting and multiple variants may not be preserved.");
   }
   if (zip.file("word/footnotes.xml") || zip.file("word/endnotes.xml")) {
     warnings.add("Footnotes/endnotes were detected; references may not be preserved in full.");
@@ -256,7 +256,7 @@ export async function importDocx(
             runs.push({ text: t, ...fmt, ...(href ? { href } : {}) });
           }
         } else if (ch.localName === "br" || ch.localName === "cr") {
-          runs.push({ text: "\n" });
+          if (attr(ch, "type") !== "page") runs.push({ text: "\n" });
         } else if (ch.localName === "tab") {
           runs.push({ text: "  " });
         } else if (ch.localName === "drawing" || ch.localName === "pict") {
@@ -383,10 +383,27 @@ export async function importDocx(
       const bidiNode = child(pPr, "bidi");
       const explicitRtl = Boolean(bidiNode && attr(bidiNode, "val") !== "0" && attr(bidiNode, "val") !== "false");
       const align = mapAlignment(attr(child(pPr, "jc"), "val"), explicitRtl);
+      const spacingNode = child(pPr, "spacing");
+      const rawLine = Number(attr(spacingNode, "line"));
+      const lineRule = attr(spacingNode, "lineRule");
+      const lineHeight = (!lineRule || lineRule === "auto") && rawLine >= 240 && rawLine <= 720 ? rawLine / 240 : undefined;
+      const indentNode = child(pPr, "ind");
+      const rawIndent = Number(attr(indentNode, "start") ?? attr(indentNode, "left"));
+      const indent = rawIndent > 0 && rawIndent <= 3000 ? rawIndent / 15 : undefined;
       const numPr = child(pPr, "numPr");
       const numId = attr(child(numPr, "numId"), "val");
 
+      const pageBreaks = descendants(node, "br").filter(br => attr(br, "type") === "page");
+      const pageBreakBefore = Boolean(child(pPr, "pageBreakBefore"));
       const { runs, text, imageBlocks } = await pushParagraphRuns(node);
+      if (pageBreakBefore || (pageBreaks.length && !text.trim())) {
+        flushList();
+        blocks.push({ id: uid("break", ++seq), kind: "pageBreak", text: "", dir: "ltr" });
+      } else if (pageBreaks.length) {
+        warnings.add("A page break inside a paragraph was simplified to a break before that paragraph.");
+        flushList();
+        blocks.push({ id: uid("break", ++seq), kind: "pageBreak", text: "", dir: "ltr" });
+      }
       const isRtl = explicitRtl || /[\u0600-\u06FF]/.test(text);
       const dir: "ltr" | "rtl" = isRtl ? "rtl" : "ltr";
 
@@ -433,6 +450,8 @@ export async function importDocx(
             text: text.slice(0, 20000),
             runs: runs.slice(0, 500),
             align,
+            ...(lineHeight ? { lineHeight } : {}),
+            ...(indent ? { indent } : {}),
             dir,
           });
         } else if (isQuote) {
@@ -442,6 +461,8 @@ export async function importDocx(
             text: text.slice(0, 20000),
             runs: runs.slice(0, 500),
             align,
+            ...(lineHeight ? { lineHeight } : {}),
+            ...(indent ? { indent } : {}),
             dir,
           });
         } else {
@@ -451,6 +472,8 @@ export async function importDocx(
             text: text.slice(0, 20000),
             runs: runs.slice(0, 500),
             align,
+            ...(lineHeight ? { lineHeight } : {}),
+            ...(indent ? { indent } : {}),
             dir,
           });
         }
@@ -478,6 +501,8 @@ export async function importDocx(
 
       const rows: string[][] = [];
       const rowHeights: Array<number | undefined> = [];
+      const cellSpans: Array<{ row: number; col: number; rowspan: number; colspan: number }> = [];
+      let activeMerges = new Map<number, (typeof cellSpans)[number]>();
       let rtlCells = bidiVisual;
 
       for (const tr of childrenOf(node, "tr").slice(0, 50)) {
@@ -491,15 +516,33 @@ export async function importDocx(
         );
 
         const cells: string[] = [];
+        const nextMerges = new Map<number, (typeof cellSpans)[number]>();
+        let col = 0;
         for (const tc of childrenOf(tr, "tc").slice(0, 12)) {
+          const tcPr = child(tc, "tcPr");
+          const colspan = Math.max(1, Math.min(12 - col, Number(attr(child(tcPr, "gridSpan"), "val")) || 1));
+          const merge = child(tcPr, "vMerge");
+          const continuing = merge && attr(merge, "val") !== "restart";
+          const prior = activeMerges.get(col);
+          if (continuing && prior) { prior.rowspan++; nextMerges.set(col, prior); }
+          else if (continuing) warnings.add("A malformed vertical table merge was simplified.");
+          else if (colspan > 1 || merge) {
+            const span = { row: rows.length, col, colspan, rowspan: 1 };
+            cellSpans.push(span);
+            if (merge) nextMerges.set(col, span);
+          }
           const paras = childrenOf(tc, "p").map((p) => {
             const ts = descendants(p, "t").map((t) => textContent(t)).join("");
             return ts;
           });
           const cellVal = paras.join(" ").trim().slice(0, 1000);
           if (/[\u0600-\u06FF]/.test(cellVal)) rtlCells = true;
-          cells.push(cellVal);
+          cells.push(continuing ? "" : cellVal);
+          for (let n = 1; n < colspan; n++) cells.push("");
+          col += colspan;
+          if (col >= 12) break;
         }
+        activeMerges = nextMerges;
         if (cells.length > 0) rows.push(cells);
       }
       if (rows.length > 0) {
@@ -519,6 +562,7 @@ export async function importDocx(
           kind: "table",
           text: "",
           rows,
+          ...(cellSpans.length ? { cellSpans } : {}),
           ...(colWidths ? { colWidths } : {}),
           ...(cleanedRowHeights ? { rowHeights: cleanedRowHeights } : {}),
           ...(widthPct && widthPct < 100 ? { widthPct } : {}),
@@ -545,7 +589,20 @@ export async function importDocx(
   flushList();
 
   const sectPr = child(body, "sectPr");
-  const pageLayout = extractPageLayout(sectPr);
+  let pageLayout = extractPageLayout(sectPr);
+  for (const [tag, field] of [["headerReference", "headerText"], ["footerReference", "footerText"]] as const) {
+    const ref = childrenOf(sectPr, tag).find(node => !attr(node, "type") || attr(node, "type") === "default");
+    const rel = rels.get(attr(ref, "id") ?? "");
+    if (!rel || rel.mode.toLowerCase() === "external") continue;
+    const target = rel.target.startsWith("/") ? rel.target.slice(1) : rel.target.startsWith("word/") ? rel.target : `word/${rel.target.replace(/^\.\//, "")}`;
+    if (!/^word\/(header|footer)\d+\.xml$/i.test(target)) continue;
+    const raw = await readSafeZipXml(zip, target);
+    const root = raw ? parseXml(raw) : null;
+    if (!root) continue;
+    const text = descendants(root, "t").map(textContent).join("").trim().slice(0, 200);
+    const hasPage = descendants(root, "instrText").some(node => /\bPAGE\b/i.test(textContent(node))) || descendants(root, "fldSimple").some(node => /\bPAGE\b/i.test(attr(node, "instr") ?? ""));
+    pageLayout = { size: "a4", orientation: "portrait", margins: "normal", ...pageLayout, ...(text ? { [field]: text } : {}), ...(field === "footerText" && hasPage ? { showPageNumbers: true } : {}) };
+  }
   const allText = blocks.map((b) => b.text || (b.items ?? []).join(" ")).join(" ");
   const arChars = (allText.match(/[\u0600-\u06FF]/g) ?? []).length;
   const language: "en" | "ar" = arChars > allText.length * 0.2 ? "ar" : "en";

@@ -1,5 +1,6 @@
 "use client";
 
+import "@/lib/desktop";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createProjectAction, createProjectFromTemplateAction } from "@/app/project-actions";
@@ -173,7 +174,10 @@ export function CreateProjectDialog({
           type="button"
           disabled={importing}
           className="btn btn-ghost text-sm"
-          onClick={() => quickImportRef.current?.click()}
+          onClick={() => {
+            if (window.eisaxDesktop) void window.eisaxDesktop.open().then((result) => { if (result.error) setImportError(result.error); });
+            else quickImportRef.current?.click();
+          }}
         >
           📂 {importing ? (ar ? "جارٍ الاستيراد..." : "Opening...") : ar ? "فتح .docx / .pptx" : "Open .docx / .pptx"}
         </button>

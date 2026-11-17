@@ -5,6 +5,8 @@ import {
   Document,
   ExternalHyperlink,
   Footer,
+  Header,
+  PageBreak,
   HeadingLevel,
   HeightRule,
   ImageRun,
@@ -189,7 +191,9 @@ export async function buildDocx(
     const rtl = block.dir === "rtl";
     const alignment = toAlignment(block.align, rtl);
 
-    if (block.kind === "heading") {
+    if (block.kind === "pageBreak") {
+      children.push(new Paragraph({ children: [new PageBreak()] }));
+    } else if (block.kind === "heading") {
       const level =
         block.level === 1
           ? HeadingLevel.HEADING_1
@@ -206,6 +210,8 @@ export async function buildDocx(
         new Paragraph({
           children: blockRunsToChildren(block.runs, block.text, rtl),
           heading: level,
+          spacing: block.lineHeight ? { line: Math.round(block.lineHeight * 240) } : undefined,
+          indent: block.indent ? { start: Math.round(block.indent * 15) } : undefined,
           bidirectional: rtl,
           alignment,
         }),
@@ -243,10 +249,12 @@ export async function buildDocx(
         const colTwips = colPcts.map((p) => Math.max(360, Math.round((tblTwips * p) / 100)));
 
         const tableRows = rows.map((row, rIdx) => {
-          const cells = Array.from({ length: colCount }, (_, cIdx) => {
+          const cells = Array.from({ length: colCount }, (_, cIdx) => cIdx).filter(cIdx => !(block.cellSpans ?? []).some(span => rIdx >= span.row && rIdx < span.row + span.rowspan && cIdx >= span.col && cIdx < span.col + span.colspan && (rIdx !== span.row || cIdx !== span.col))).map((cIdx) => {
+            const span = block.cellSpans?.find(s => s.row === rIdx && s.col === cIdx);
             const cellText = row[cIdx] ?? "";
             const cellRtl = rtl || /[\u0600-\u06FF]/.test(cellText);
             return new TableCell({
+              ...(span ? { columnSpan: span.colspan, rowSpan: span.rowspan } : {}),
               width: { size: colTwips[cIdx] ?? Math.round(tblTwips / colCount), type: WidthType.DXA },
               shading:
                 rIdx === 0
@@ -426,6 +434,8 @@ export async function buildDocx(
       children.push(
         new Paragraph({
           children: blockRunsToChildren(block.runs, block.text || " ", rtl),
+          spacing: block.lineHeight ? { line: Math.round(block.lineHeight * 240) } : undefined,
+          indent: block.indent ? { start: Math.round(block.indent * 15) } : undefined,
           bidirectional: rtl,
           alignment,
         }),
@@ -491,24 +501,8 @@ export async function buildDocx(
             },
           },
         },
-        ...(pageLayout?.showPageNumbers
-          ? {
-              footers: {
-                default: new Footer({
-                  children: [
-                    new Paragraph({
-                      alignment: AlignmentType.CENTER,
-                      children: [
-                        new TextRun({
-                          children: [PageNumber.CURRENT, " / ", PageNumber.TOTAL_PAGES],
-                        }),
-                      ],
-                    }),
-                  ],
-                }),
-              },
-            }
-          : {}),
+        ...(pageLayout?.headerText ? { headers: { default: new Header({ children: [new Paragraph({ text: pageLayout.headerText, alignment: AlignmentType.CENTER })] }) } } : {}),
+        ...(pageLayout?.showPageNumbers || pageLayout?.footerText ? { footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: pageLayout.footerText || "" }), ...(pageLayout.showPageNumbers ? [new TextRun({ children: [pageLayout.footerText ? "  " : "", PageNumber.CURRENT] })] : [])] })] }) } } : {}),
         children,
       },
     ],

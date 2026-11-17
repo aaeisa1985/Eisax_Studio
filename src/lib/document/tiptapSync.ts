@@ -143,9 +143,13 @@ export function blocksToTiptapDoc(blocks: DocumentBlock[]): JSONContent {
     const baseAttrs: Record<string, unknown> = {
       ...(b.align ? { textAlign: b.align } : {}),
       dir: tDir,
+      ...(b.lineHeight ? { lineHeight: b.lineHeight } : {}),
+      ...(b.indent ? { indent: b.indent } : {}),
     };
 
-    if (b.kind === "heading") {
+    if (b.kind === "pageBreak") {
+      content.push({ type: "pageBreak" });
+    } else if (b.kind === "heading") {
       const level = Math.min(6, Math.max(1, b.level ?? 2));
       const inline = inlineRunsToTiptapNodes(b.runs, b.text);
       content.push({
@@ -226,19 +230,22 @@ export function blocksToTiptapDoc(blocks: DocumentBlock[]): JSONContent {
           ...(b.widthPct ? { widthPct: b.widthPct } : {}),
         },
         content: rows.map((row, rIdx) => {
+          const covered = (r: number, c: number) => (b.cellSpans ?? []).some(span => r >= span.row && r < span.row + span.rowspan && c >= span.col && c < span.col + span.colspan && (r !== span.row || c !== span.col));
           const rowH = b.rowHeights?.[rIdx];
           return {
             type: "tableRow",
             ...(typeof rowH === "number" && rowH >= 20 ? { attrs: { height: Math.round(rowH) } } : {}),
-            content: row.map((cell, cIdx) => {
+            content: row.flatMap((cell, cIdx) => {
+              if (covered(rIdx, cIdx)) return [];
+              const span = b.cellSpans?.find(s => s.row === rIdx && s.col === cIdx);
               const colPct = b.colWidths?.[cIdx];
               const colPx =
                 typeof colPct === "number" && colTotal > 0
                   ? Math.max(36, Math.round((colPct / colTotal) * baseTablePx))
                   : null;
-              return {
+              return [{
                 type: rIdx === 0 ? "tableHeader" : "tableCell",
-                ...(colPx ? { attrs: { colwidth: [colPx] } } : {}),
+                attrs: { ...(colPx ? { colwidth: Array(span?.colspan ?? 1).fill(colPx) } : {}), colspan: span?.colspan ?? 1, rowspan: span?.rowspan ?? 1 },
                 content: [
                   {
                     type: "paragraph",
@@ -246,7 +253,7 @@ export function blocksToTiptapDoc(blocks: DocumentBlock[]): JSONContent {
                     ...(cell ? { content: [{ type: "text", text: cell }] } : {}),
                   },
                 ],
-              };
+              }];
             }),
           };
         }),
@@ -301,7 +308,9 @@ export function tiptapDocToBlocks(
   const nextId = (p: string) => `${p}-${++seq}`;
 
   for (const node of doc.content ?? []) {
-    if (node.type === "heading") {
+    if (node.type === "pageBreak") {
+      blocks.push({ id: nextId("break"), kind: "pageBreak", text: "", dir: defaultDir });
+    } else if (node.type === "heading") {
       const level = Math.min(6, Math.max(1, Number(node.attrs?.level ?? 2)));
       const { runs, text } = tiptapInlineToRuns(node.content);
       blocks.push({
@@ -310,6 +319,8 @@ export function tiptapDocToBlocks(
         level,
         text,
         runs: runs.length > 0 ? runs : undefined,
+        ...(Number(node.attrs?.lineHeight) >= 1 ? { lineHeight: Number(node.attrs?.lineHeight) } : {}),
+        ...(Number(node.attrs?.indent) > 0 ? { indent: Number(node.attrs?.indent) } : {}),
         align: normalizeAlign(node.attrs?.textAlign),
         dir: inferDir(node.attrs?.dir, text, defaultDir),
       });
@@ -340,6 +351,8 @@ export function tiptapDocToBlocks(
         kind: "paragraph",
         text,
         runs: runs.length > 0 ? runs : undefined,
+        ...(Number(node.attrs?.lineHeight) >= 1 ? { lineHeight: Number(node.attrs?.lineHeight) } : {}),
+        ...(Number(node.attrs?.indent) > 0 ? { indent: Number(node.attrs?.indent) } : {}),
         align: normalizeAlign(node.attrs?.textAlign),
         dir: inferDir(node.attrs?.dir, text, defaultDir),
       });
@@ -386,6 +399,8 @@ export function tiptapDocToBlocks(
     } else if (node.type === "table") {
       const rows: string[][] = [];
       const rowHeights: number[] = [];
+      const cellSpans: Array<{row: number; col: number; rowspan: number; colspan: number}> = [];
+      const occupied = new Set<string>();
       let rawColPx: number[] = [];
       let hasAnyRowHeight = false;
       for (const tr of node.content ?? []) {
@@ -399,13 +414,23 @@ export function tiptapDocToBlocks(
         }
         const cells: string[] = [];
         const rowColPx: number[] = [];
+        const rIdx = rows.length;
+        let col = 0;
         for (const tc of tr.content ?? []) {
+          while (occupied.has(`${rIdx}:${col}`)) { cells[col] = ""; col++; }
+          const colspan = Math.max(1, Number(tc.attrs?.colspan) || 1);
+          const rowspan = Math.max(1, Number(tc.attrs?.rowspan) || 1);
+          if (colspan > 1 || rowspan > 1) cellSpans.push({ row: rIdx, col, rowspan, colspan });
+          for (let r = rIdx; r < rIdx + rowspan; r++) for (let c = col; c < col + colspan; c++) if (r !== rIdx || c !== col) occupied.add(`${r}:${c}`);
           const val = (tc.content ?? []).map(collectNodeText).join("\n").trim().slice(0, 1000);
-          cells.push(val);
+          cells[col] = val;
+          for (let c = 1; c < colspan; c++) cells[col + c] = "";
+          col += colspan;
           const cw = tc.attrs?.colwidth;
           const px = Array.isArray(cw) && typeof cw[0] === "number" && cw[0] > 0 ? cw[0] : 0;
           rowColPx.push(px);
         }
+        while (occupied.has(`${rIdx}:${col}`)) { cells[col] = ""; col++; }
         if (cells.length > 0) {
           rows.push(cells);
           if (rawColPx.length === 0 && rowColPx.some((p) => p > 0)) {
@@ -436,6 +461,7 @@ export function tiptapDocToBlocks(
           kind: "table",
           text: "",
           rows: rows.slice(0, 50),
+          ...(cellSpans.length ? { cellSpans } : {}),
           ...(colWidths ? { colWidths } : {}),
           ...(hasAnyRowHeight ? { rowHeights: rowHeights.slice(0, 50).map((h) => (h >= 20 ? h : 36)) } : {}),
           ...(widthPct ? { widthPct } : {}),

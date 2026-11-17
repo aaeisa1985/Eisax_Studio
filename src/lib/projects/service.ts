@@ -181,23 +181,29 @@ export async function updateProject(
   userId: string,
   projectId: string,
   input: unknown,
-): Promise<{ ok: boolean; error?: string }> {
+  expectedUpdatedAt?: string,
+): Promise<{ ok: boolean; error?: string; updatedAt?: string }> {
   const access = await assertProjectAccess(userId, projectId);
   if (!access) return { ok: false, error: "not_found" };
 
   const parsed = updateProjectSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "invalid_input" };
 
-  const db = await getDb();
+  const database = await getDb();
+  return database.transaction(async (db) => {
   const existing = await db
-    .select({ id: projects.id, type: projects.type, title: projects.title, content: projects.content })
+    .select({ id: projects.id, type: projects.type, title: projects.title, content: projects.content, updatedAt: projects.updatedAt })
     .from(projects)
     .where(eq(projects.id, projectId))
-    .limit(1);
+    .limit(1)
+    .for("update");
   const current = existing[0];
   if (!current) return { ok: false, error: "not_found" };
+  if (expectedUpdatedAt && current.updatedAt.toISOString() !== expectedUpdatedAt) {
+    return { ok: false, error: "conflict" };
+  }
 
-  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  const updates: Record<string, unknown> = { updatedAt: new Date(Math.max(Date.now(), current.updatedAt.getTime() + 1)) };
   if (parsed.data.title !== undefined) updates.title = parsed.data.title;
   if (parsed.data.language !== undefined) updates.language = parsed.data.language;
 
@@ -244,7 +250,8 @@ export async function updateProject(
   }
 
   await db.update(projects).set(updates).where(eq(projects.id, projectId));
-  return { ok: true };
+  return { ok: true, updatedAt: (updates.updatedAt as Date).toISOString() };
+  });
 }
 
 export async function listRevisions(userId: string, projectId: string) {

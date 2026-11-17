@@ -8,6 +8,7 @@ export type EisaxDb = ReturnType<typeof drizzle<typeof schema>>;
 
 interface GlobalDb {
   __eisaxDb?: EisaxDb;
+  __eisaxInitializing?: Promise<EisaxDb>;
   __eisaxClient?: PGlite;
   __eisaxShutdownHook?: boolean;
 }
@@ -17,7 +18,7 @@ const g = globalThis as unknown as GlobalDb;
 function dataDir(): string {
   // Isolate Vitest PGlite storage from the local runtime DB to prevent lock/WAL corruption.
   const folder = process.env.EISAX_PG_DATA_DIR || (process.env.VITEST ? "pg-test" : "pg");
-  const dir = path.isAbsolute(folder) ? folder : path.resolve(process.cwd(), ".data", folder);
+  const dir = path.isAbsolute(folder) ? folder : path.resolve(process.env.EISAX_DATA_DIR || path.resolve(process.cwd(), ".data"), folder);
   mkdirSync(path.dirname(dir), { recursive: true });
   return dir;
 }
@@ -49,6 +50,16 @@ async function runMigrations(client: PGlite): Promise<void> {
 /** Get (and lazily create) the singleton PGlite-backed Drizzle instance. */
 export async function getDb(): Promise<EisaxDb> {
   if (g.__eisaxDb) return g.__eisaxDb;
+  if (!g.__eisaxInitializing) {
+    g.__eisaxInitializing = initializeDb().catch((error) => {
+      g.__eisaxInitializing = undefined;
+      throw error;
+    });
+  }
+  return g.__eisaxInitializing;
+}
+
+async function initializeDb(): Promise<EisaxDb> {
   const client = new PGlite(dataDir());
   await client.waitReady;
   await runMigrations(client);

@@ -1,0 +1,91 @@
+.root {
+  min-height: 100vh;
+  width: 100%;
+  background: #fff !important;
+  color: #17222e !important;
+  color-scheme: light;
+}
+
+.content {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  color: #17222e;
+}
+
+.document {
+  font-size: 11pt;
+  line-height: 1.65;
+}
+
+.document p {
+  font-size: inherit !important;
+  line-height: inherit !important;
+}
+
+.slides {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.slide {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+@media print {
+  .root,
+  .content {
+    width: 100% !important;
+    min-height: 0 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    color: #17222e !important;
+  }
+
+  .document {
+    font-size: 11pt !important;
+    line-height: 1.65 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .slides {
+    display: block;
+    gap: 0;
+  }
+
+  .slide {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    aspect-ratio: 16 / 9;
+    margin: 0 !important;
+    padding: 0;
+    border: 0 !important;
+    border-radius: 0 !important;
+    break-after: page;
+    page-break-after: always;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .slide:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .slide a {
+    color: inherit;
+  }
+}

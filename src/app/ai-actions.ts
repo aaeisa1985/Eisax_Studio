@@ -118,8 +118,8 @@ export async function aiGenerateAction(input: {
     const theme = parsed.data.theme || current.theme || "default";
     const content = outlineToContent(project.type, language, outline, theme);
 
-    const res = await updateProject(user.id, project.id, { content });
-    if (!res.ok) return { ok: false, error: "failed" };
+    // The editor applies this result to its undo stack and saves with its
+    // expected revision, just like a manual edit. Do not overwrite it here.
 
     await recordJob({
       userId: user.id,

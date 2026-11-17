@@ -5,6 +5,7 @@ import { AiGeneratePanel, AiMenu } from "@/components/AiAssist";
 import { SlideChart } from "@/components/SlideChart";
 import { ChartDataEditor, CropControlsBar } from "@/components/MediaControls";
 import { SLIDE_THEMES, resolveSlideTheme } from "@/lib/projects/themes";
+import { alignElements, distributeElements, elementFormat, selectionBounds, snapPosition, type Alignment } from "@/lib/presentation/editing";
 import { slideToCanvasElements } from "@/lib/presentation/elements";
 import { detectFirstStrongDir } from "@/lib/utils/bidi";
 import {
@@ -330,6 +331,10 @@ export function SlideCanvasEditor({
 
   const [selectedSlideIdx, setSelectedSlideIdx] = useState(0);
   const [selectedElId, setSelectedElId] = useState<string | null>(null);
+  const [extraSelectedIds, setExtraSelectedIds] = useState<string[]>([]);
+  const [formatSource, setFormatSource] = useState<Partial<SlideElement> | null>(null);
+  const [presenting, setPresenting] = useState(false);
+  const [snapGuides, setSnapGuides] = useState<{axis: "x" | "y"; position: number}[]>([]);
   const [editingElId, setEditingElId] = useState<string | null>(null);
   const [croppingElId, setCroppingElId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -359,6 +364,7 @@ export function SlideCanvasEditor({
     startY: number;
     orig: { x: number; y: number; w: number; h: number };
     origCrop: ImageCrop;
+    members: SlideElement[];
   } | null>(null);
 
   const safeIdx = Math.min(selectedSlideIdx, Math.max(0, slides.length - 1));
@@ -368,17 +374,66 @@ export function SlideCanvasEditor({
     : [];
   const selectedEl = elements.find((e) => e.id === selectedElId) ?? null;
 
+  const selectedIds = selectedElId ? [...new Set([selectedElId, ...extraSelectedIds])].filter(id => elements.some(el => el.id === id)) : [];
+  const selectedElements = elements.filter(el => selectedIds.includes(el.id));
+
+  useEffect(() => { setExtraSelectedIds([]); setSelectedElId(null); setEditingElId(null); setCroppingElId(null); }, [safeIdx]);
+  useEffect(() => {
+    if (!presenting) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onPresentKey(e: KeyboardEvent) {
+      if (e.key === "Tab") {
+        const controls = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-presentation-controls] button:not(:disabled)"));
+        const index = controls.indexOf(document.activeElement as HTMLButtonElement);
+        e.preventDefault();
+        controls[(index + (e.shiftKey ? -1 : 1) + controls.length) % controls.length]?.focus();
+      }
+      if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) { e.preventDefault(); setSelectedSlideIdx(i => Math.min(slides.length - 1, i + 1)); }
+      if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) { e.preventDefault(); setSelectedSlideIdx(i => Math.max(0, i - 1)); }
+      if (e.key === "Escape") setPresenting(false);
+      if (e.key === "Home") setSelectedSlideIdx(0);
+      if (e.key === "End") setSelectedSlideIdx(slides.length - 1);
+    }
+    function onFullscreenChange() { if (!document.fullscreenElement) setPresenting(false); }
+    window.addEventListener("keydown", onPresentKey);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => {
+      window.removeEventListener("keydown", onPresentKey);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [presenting, slides.length]);
+
+  function selectElement(el: SlideElement, additive: boolean) {
+    const members = el.groupId ? elements.filter(item => item.groupId === el.groupId).map(item => item.id) : [el.id];
+    const next = additive ? (members.every(id => selectedIds.includes(id)) ? selectedIds.filter(id => !members.includes(id)) : [...new Set([...selectedIds, ...members])]) : members;
+    setSelectedElId(next[0] ?? null);
+    setExtraSelectedIds(next.slice(1));
+    return next;
+  }
+
+  function setSelectionLock(locked: boolean) {
+    commitElements(elements.map(el => selectedIds.includes(el.id) ? { ...el, locked } : el));
+    setEditingElId(null); setCroppingElId(null);
+  }
+
   // Delete selected element via Delete key when not editing text
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (!selectedElId || editingElId) return;
+      if (presenting || !selectedElId || editingElId) return;
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) {
         return;
       }
+      if (e.key === "Escape") { setFormatSource(null); setSelectedElId(null); setExtraSelectedIds([]); }
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        deleteElement(selectedElId);
+        commitElements(elements.filter(el => !selectedIds.includes(el.id) || el.locked));
+        setSelectedElId(null); setExtraSelectedIds([]);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -402,12 +457,12 @@ export function SlideCanvasEditor({
   }
 
   function updateElement(elId: string, patch: Partial<SlideElement>) {
-    const next = elements.map((el) => (el.id === elId ? { ...el, ...patch } : el));
+    const next = elements.map((el) => (el.id === elId && !el.locked ? { ...el, ...patch } : el));
     commitElements(next);
   }
 
   function deleteElement(elId: string) {
-    commitElements(elements.filter((el) => el.id !== elId));
+    commitElements(elements.filter((el) => el.id !== elId || el.locked));
     if (selectedElId === elId) setSelectedElId(null);
     if (editingElId === elId) setEditingElId(null);
   }
@@ -499,6 +554,7 @@ export function SlideCanvasEditor({
     };
     commitElements([...elements, el]);
     setSelectedElId(el.id);
+    setExtraSelectedIds([]);
     setEditingElId(el.id);
   }
 
@@ -523,6 +579,7 @@ export function SlideCanvasEditor({
     };
     commitElements([...elements, el]);
     setSelectedElId(el.id);
+    setExtraSelectedIds([]);
     setEditingElId(null);
   }
 
@@ -545,6 +602,7 @@ export function SlideCanvasEditor({
     };
     commitElements([...elements, el]);
     setSelectedElId(el.id);
+    setExtraSelectedIds([]);
     setEditingElId(null);
   }
 
@@ -580,6 +638,7 @@ export function SlideCanvasEditor({
     };
     commitElements([...elements, el]);
     setSelectedElId(el.id);
+    setExtraSelectedIds([]);
     setEditingElId(null);
     setCroppingElId(null);
   }
@@ -601,10 +660,12 @@ export function SlideCanvasEditor({
     };
     commitElements([...elements, el]);
     setSelectedElId(el.id);
+    setExtraSelectedIds([]);
     setEditingElId(null);
   }
 
   function changeLayer(elId: string, action: "front" | "forward" | "backward" | "back") {
+    if (elements.find(el => el.id === elId)?.locked) return;
     const ordered = [...elements].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
     const idx = ordered.findIndex((e) => e.id === elId);
     if (idx === -1) return;
@@ -620,6 +681,7 @@ export function SlideCanvasEditor({
   function duplicateElement(el: SlideElement) {
     const copy: SlideElement = {
       ...el,
+      groupId: undefined,
       id: elUid("el"),
       x: Math.min(80, el.x + 3),
       y: Math.min(80, el.y + 4),
@@ -627,6 +689,7 @@ export function SlideCanvasEditor({
     };
     commitElements([...elements, copy]);
     setSelectedElId(copy.id);
+    setExtraSelectedIds([]);
   }
 
   function beginPointer(
@@ -647,11 +710,20 @@ export function SlideCanvasEditor({
       | "crop-b"
       | "crop-l",
   ) {
-    if (editingElId === el.id) return;
+    if (presenting || editingElId === el.id) return;
     e.stopPropagation();
     e.preventDefault();
-    setSelectedElId(el.id);
+    if (formatSource) {
+      if (!el.locked) updateElement(el.id, formatSource);
+      setFormatSource(null);
+      return;
+    }
+    // Additive selection belongs to click, so a browser click and a pointer
+    // gesture follow the same path without toggling twice.
+    if (e.shiftKey) return;
+    const ids = selectedIds.includes(el.id) ? selectedIds : selectElement(el, false);
     setEditingElId(null);
+    if (el.locked) return;
     if (croppingElId && croppingElId !== el.id) setCroppingElId(null);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     dragStateRef.current = {
@@ -661,6 +733,7 @@ export function SlideCanvasEditor({
       startY: e.clientY,
       orig: { x: el.x, y: el.y, w: el.w, h: el.h },
       origCrop: normalizeCrop(el.crop),
+      members: elements.filter(item => ids.includes(item.id)),
     };
   }
 
@@ -691,8 +764,14 @@ export function SlideCanvasEditor({
 
     let { x, y, w, h } = st.orig;
     if (st.mode === "move") {
-      x = Math.max(-10, Math.min(96, x + dxPct));
-      y = Math.max(-10, Math.min(96, y + dyPct));
+      if (st.members.some(member => member.locked)) return;
+      const bounds = selectionBounds(st.members);
+      const snapped = snapPosition({ ...bounds, x: bounds.x + dxPct, y: bounds.y + dyPct }, elements.filter(item => !st.members.some(member => member.id === item.id)), e.altKey ? 0 : 0.8);
+      setSnapGuides(snapped.guides);
+      const dx = Math.max(-25 - bounds.x, Math.min(125 - bounds.x - bounds.w, snapped.box.x - bounds.x));
+      const dy = Math.max(-25 - bounds.y, Math.min(125 - bounds.y - bounds.h, snapped.box.y - bounds.y));
+      setDragPreview(Object.fromEntries(st.members.map(item => [item.id, { x: round2(item.x + dx), y: round2(item.y + dy), w: item.w, h: item.h }])));
+      return;
     } else {
       if (st.mode.includes("e")) w = Math.max(3, Math.min(120, st.orig.w + dxPct));
       if (st.mode.includes("s")) h = Math.max(3, Math.min(120, st.orig.h + dyPct));
@@ -730,11 +809,9 @@ export function SlideCanvasEditor({
       }
       return;
     }
-    const finalBox = dragPreview[st.elId];
-    setDragPreview({});
-    if (finalBox) {
-      updateElement(st.elId, finalBox);
-    }
+    const preview = dragPreview;
+    setDragPreview({}); setSnapGuides([]);
+    if (Object.keys(preview).length) commitElements(elements.map(el => preview[el.id] && !el.locked ? { ...el, ...preview[el.id] } : el));
   }
 
   const slideBgHex = currentSlide?.bgColor
@@ -1295,14 +1372,39 @@ export function SlideCanvasEditor({
           </div>
         )}
 
+        <div className="card flex flex-wrap items-center gap-2 p-2" aria-label={ar ? "ترتيب العناصر" : "Arrange objects"}>
+          <span className="text-xs" style={{ color: "var(--text-dim)" }}>{ar ? "Shift + نقر للتحديد المتعدد" : "Shift + click to select multiple"} · {selectedIds.length}</span>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" disabled={selectedIds.length < 2 || selectedElements.some(el => el.locked)} onClick={() => { const groupId = elUid("group"); commitElements(elements.map(el => selectedIds.includes(el.id) ? { ...el, groupId } : el)); }}>{ar ? "تجميع" : "Group"}</button>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" disabled={!selectedElements.some(el => el.groupId) || selectedElements.some(el => el.locked)} onClick={() => commitElements(elements.map(el => selectedIds.includes(el.id) ? { ...el, groupId: undefined } : el))}>{ar ? "فك التجميع" : "Ungroup"}</button>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" disabled={!selectedIds.length} onClick={() => setSelectionLock(!selectedElements.every(el => el.locked))}>{selectedElements.length > 0 && selectedElements.every(el => el.locked) ? (ar ? "إلغاء القفل" : "Unlock") : (ar ? "قفل" : "Lock")}</button>
+          <select className="input !w-auto !py-1 text-xs" aria-label={ar ? "محاذاة العناصر" : "Align objects"} value="" disabled={selectedIds.length < 2} onChange={e => commitElements(alignElements(elements, selectedIds, e.target.value as Alignment))}>
+            <option value="">{ar ? "محاذاة…" : "Align…"}</option>
+            {([ ["left", "Left", "يسار"], ["center", "Center", "توسيط أفقي"], ["right", "Right", "يمين"], ["top", "Top", "أعلى"], ["middle", "Middle", "توسيط رأسي"], ["bottom", "Bottom", "أسفل"] ] as const).map(([value,en,arabic]) => <option key={value} value={value}>{ar ? arabic : en}</option>)}
+          </select>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" disabled={selectedIds.length < 3 || selectedElements.some(el => el.locked)} onClick={() => commitElements(distributeElements(elements, selectedIds, "x"))}>{ar ? "توزيع أفقي" : "Space horizontally"}</button>
+          <button type="button" className="btn btn-ghost !py-1 text-xs" disabled={selectedIds.length < 3 || selectedElements.some(el => el.locked)} onClick={() => commitElements(distributeElements(elements, selectedIds, "y"))}>{ar ? "توزيع رأسي" : "Space vertically"}</button>
+          <button type="button" className={`btn !py-1 text-xs ${formatSource ? "btn-primary" : "btn-ghost"}`} disabled={!selectedEl && !formatSource} onClick={() => setFormatSource(formatSource ? null : selectedEl ? elementFormat(selectedEl) : null)}>{formatSource ? (ar ? "انقر على العنصر الهدف · إلغاء" : "Click target · Cancel painter") : (ar ? "نسخ التنسيق" : "Format painter")}</button>
+          <button type="button" className="btn btn-primary ms-auto !py-1 text-xs" onClick={() => {setEditingElId(null); setCroppingElId(null); setPresenting(true); void document.documentElement.requestFullscreen?.().catch(() => {});}}>{ar ? "عرض الشرائح" : "Present"}</button>
+        </div>
+        {presenting && <div className="fixed inset-0 bg-black" style={{zIndex: 10000}} role="dialog" aria-modal="true" aria-label={ar ? "عرض الشرائح" : "Presentation"}>
+          <div data-presentation-controls className="absolute inset-x-0 bottom-3 flex items-center justify-center gap-3 text-white" style={{zIndex:10002}}>
+            <button type="button" className="btn btn-ghost" disabled={safeIdx === 0} onClick={() => setSelectedSlideIdx(i => Math.max(0, i - 1))}>{ar ? "السابق" : "Previous"}</button>
+            <span>{safeIdx + 1} / {slides.length}</span>
+            <button type="button" className="btn btn-ghost" disabled={safeIdx === slides.length - 1} onClick={() => setSelectedSlideIdx(i => Math.min(slides.length - 1, i + 1))}>{ar ? "التالي" : "Next"}</button>
+            <button type="button" className="btn btn-ghost" autoFocus onClick={() => setPresenting(false)}>{ar ? "إنهاء العرض" : "Exit"} · Esc</button>
+          </div>
+        </div>}
         {/* Interactive 16:9 Slide Canvas */}
         {currentSlide && (
           <div
             ref={canvasRef}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
-            onClick={() => {
+            onPointerCancel={() => {dragStateRef.current = null; setDragPreview({}); setCropPreview({}); setSnapGuides([]);}}
+            onClick={(e) => {
+              if (e.target !== e.currentTarget) return;
               setSelectedElId(null);
+              setExtraSelectedIds([]);
               setEditingElId(null);
               setCroppingElId(null);
             }}
@@ -1310,15 +1412,17 @@ export function SlideCanvasEditor({
             style={{
               background: slideBgHex,
               borderColor: `#${activeTheme.borderHex}`,
+              ...(presenting ? { position: "fixed", zIndex: 10001, width: "min(100vw, calc((100dvh - 80px) * 16 / 9))", top: "calc((100dvh - 80px) / 2)", left: "50%", transform: "translate(-50%, -50%)", borderRadius: 0, pointerEvents: "none" } as React.CSSProperties : {}),
             }}
           >
+            {!presenting && snapGuides.map(guide => <div key={guide.axis} className="pointer-events-none absolute" style={{ zIndex: 2000, background: "#E6B452", ...(guide.axis === "x" ? {left: `${guide.position}%`, top:0, bottom:0, width:1} : {top:`${guide.position}%`, left:0, right:0, height:1}) }} />)}
             {[...elements]
               .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
               .map((el) => {
                 const box = dragPreview[el.id] ?? { x: el.x, y: el.y, w: el.w, h: el.h };
-                const isSelected = selectedElId === el.id;
-                const isEditing = editingElId === el.id;
-                const isCropping = croppingElId === el.id && el.kind === "image";
+                const isSelected = !presenting && selectedIds.includes(el.id);
+                const isEditing = !presenting && !el.locked && editingElId === el.id;
+                const isCropping = !presenting && !el.locked && croppingElId === el.id && el.kind === "image";
                 const borderClr = asCssHex(el.borderColor, "transparent");
                 const fillClr = asCssHex(el.fillColor, "transparent");
                 const activeCrop = cropPreview[el.id] ?? el.crop;
@@ -1328,15 +1432,20 @@ export function SlideCanvasEditor({
                     key={el.id}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedElId(el.id);
+                      if (presenting || editingElId === el.id) return;
+                      if (e.shiftKey) selectElement(el, true);
+                      else if (!selectedIds.includes(el.id)) selectElement(el, false);
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
+                      if (el.locked || presenting) return;
                       if (el.kind === "text" || el.kind === "shape" || el.kind === "table") {
                         setSelectedElId(el.id);
+                        setExtraSelectedIds([]);
                         setEditingElId(el.id);
                       } else if (el.kind === "image") {
                         setSelectedElId(el.id);
+                        setExtraSelectedIds([]);
                         setCroppingElId((c) => (c === el.id ? null : el.id));
                       }
                     }}
@@ -1349,7 +1458,7 @@ export function SlideCanvasEditor({
                       height: `${box.h}%`,
                       zIndex: el.zIndex ?? 1,
                       transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
-                      cursor: isEditing ? "text" : "move",
+                      cursor: formatSource ? "copy" : el.locked ? "default" : isEditing ? "text" : "move",
                       outline: isCropping
                         ? "2px dashed #D9A441"
                         : isSelected
@@ -1442,7 +1551,9 @@ export function SlideCanvasEditor({
                         activeTheme={activeTheme}
                         isEditing={isEditing}
                         onStartEdit={() => {
+                          if (el.locked || presenting) return;
                           setSelectedElId(el.id);
+                          setExtraSelectedIds([]);
                           setEditingElId(el.id);
                         }}
                         onUpdate={(patch) => updateElement(el.id, patch)}
@@ -1510,7 +1621,7 @@ export function SlideCanvasEditor({
                     )}
 
                     {/* 8-Point Resize Handles OR Edge Crop Bars when Selected */}
-                    {isSelected && !isEditing && !isCropping && (
+                    {isSelected && !el.locked && selectedIds.length === 1 && !isEditing && !isCropping && (
                       <>
                         {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const).map((handle) => {
                           const isTop = handle.startsWith("n");

@@ -24,7 +24,7 @@ export interface StorageAdapter {
 export class LocalStorageAdapter implements StorageAdapter {
   private readonly root: string;
 
-  constructor(rootDir = path.resolve(process.cwd(), ".data", "storage")) {
+  constructor(rootDir = path.resolve(process.env.EISAX_DATA_DIR || path.resolve(process.cwd(), ".data"), "storage")) {
     this.root = rootDir;
   }
 

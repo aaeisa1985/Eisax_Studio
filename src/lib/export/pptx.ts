@@ -42,7 +42,7 @@ export async function buildPptx(
         : theme.bgHex;
     s.background = { color: bgHex };
 
-    if (slide.elements && slide.elements.length > 0) {
+    if (slide.elements) {
       const sorted = [...slide.elements].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
       const shapeMap = {
         rect: pptx.ShapeType.rect,
