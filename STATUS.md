@@ -260,3 +260,28 @@ Installer rebuild did not complete in this pass; stopped packaging and marked th
   - DOCX export via toolbar downloaded `UI Save Test Doc.docx` (9,723 B): valid OOXML (PK zip, `word/document.xml`) containing all latest paragraph texts.
 
 **Not verified in this pass:** installer/packaged executable, real Microsoft Office visual fidelity, PPTX-side interactive flows, performance profiling.
+
+
+## Packaging & Office fixture verification (2026-11-17, later same day)
+
+**Interactive Office fixture verification (standalone server, browser):**
+- `create-office-fixtures.mjs` generated 5 synthetic fixtures (4 DOCX + 1 PPTX) in `.data/office-fixtures/`.
+- Imported `01-arabic-letter.docx` via the dashboard "Open .docx / .pptx" button: project created automatically, full Arabic letter rendered in the Word editor, and the "Download original" link returned bytes identical to the uploaded file (10,000 B, byte-for-byte match).
+- Imported `03-long-table-report.docx`: single table with bilingual month/request/completed/rate/notes headers and rows rendered.
+- Imported `05-picture-chart-presentation.pptx`: 2 slides rendered in the slide editor with bilingual content (Arabic + English titles and body).
+- Exported the imported presentation via the ⬇ PPTX button: downloaded a valid OOXML PPTX (43 entries, `ppt/slides/slide1.xml` + `slide2.xml`, slide 1 contains both the Arabic and English strings).
+- Note: a browser `beforeunload` guard keeps a conflicting window's draft when reloading; automation had to open a fresh tab (same origin, shared localStorage) to reach the recovery banner. This matches the designed "draft is retained on this device; reload to review" flow.
+
+**Performance spot-check (dashboard, first load after cold start):**
+- Chromium trace over 8.3s: 942 events, 3 long tasks totalling ~180 ms blocking, single Minor GC ~7 ms, script compile ~19 scripts / ~6 ms. Hydration-heavy but healthy; no lazy-loading change justified. Bundle budget from the production build: shared First Load JS 103 kB; largest route (dashboard) 123 kB first load.
+
+**Packaged build & installer — verified this pass (supersedes the earlier "unverified" note):**
+- `npm run desktop:package` completed end to end (build lock honored): fresh `dist\EISAX Studio Setup 0.1.0.exe` (169,643,655 B) + blockmap + latest.yml; stale `.unverified.exe` from the previous attempt removed.
+- Packaged `dist\win-unpacked\EISAX Studio.exe --smoke 02-cv.docx` passed: embedded server started from `resources/server`, DOCX imported, `smoke.pdf` (48,835 B) generated, all processes exited.
+- Silent NSIS install (`Setup.exe /S`) succeeded into `%LOCALAPPDATA%\Programs\EISAX Studio` with complete `resources/server` (server.js, PGlite `postgres.wasm`, `.next/static`) and a registered uninstall entry ("EISAX Studio 0.1.0").
+- Installed-app smoke with `04-mixed-language.docx` passed: `smoke.pdf` (43,878 B) generated from the installed location, clean exit.
+- Silent uninstall removed the install directory and registry entry completely.
+
+**Build-hang root cause found this pass:** running `next build` while a server is already executing from `.next/standalone` hangs Next's build before it spawns compile workers (indefinite, zero CPU). Kill any running standalone/Electron server before building, or expect the lock script's caller to do so. All three builds after cleaning `.next/standalone` and stopping the server completed normally (~54–65 s compile).
+
+**Still not verified:** real Microsoft Word/PowerPoint visual fidelity on this machine (synthetic fixtures only), PPTX slide-sorter/chart editing interactively, offline PWA navigation.
