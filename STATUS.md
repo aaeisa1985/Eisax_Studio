@@ -242,3 +242,21 @@ Verification: 69 tests passed; production build/desktop preparation passed. Hidd
 
 Windows packaging follow-up: initial installer omitted the standalone node_modules directory. Added an explicit extraResources mapping and excluded duplicate app dependencies. Developer Electron smoke passed; packaged executable smoke remained unverified due to its test-profile lock, and automatic review rejected deleting that lock. Installer compression was still running at the last check; do not treat the earlier installer as verified.
 Installer rebuild did not complete in this pass; stopped packaging and marked the earlier installer unverified. Use npm run desktop for the verified developer runtime. Do not distribute the installer as validated.
+
+
+## Stabilization pass — build lock, isolated runtime, and browser verification (2026-11-17)
+
+**Done this pass:**
+- **Stable Git checkpoint:** commit `c355daa` "Snapshot Codex office/local/desktop work as stable checkpoint" pushed to `origin/main` (only Studio paths; nested projects `eisax-corporate*`, `eisax-website`, `google-seo`, `artifacts` stay untracked).
+- **Build serialization:** new `scripts/build-locked.mjs` (file lock `.data/build.lock`, 20s wait, 15-min stale cleanup, signal-safe release); `build` and `desktop:prepare` now route through it. Verified: a second concurrent build is rejected with a clear message and exits 1; a real `npm run build` completes, exits 0, and removes the lock. Committed as `47fff61`.
+- **Standalone/desktop runtime data isolation confirmed:** running `.next/standalone/server.js` with a clean `EISAX_DATA_DIR` yields `/api/health` → `200 {"status":"ok","db":"ready"}`. A stale `.data` subtree copied into the standalone directory previously caused a PGlite WASM abort (503 degraded); never distribute a standalone build that has copied project `.data` into it.
+- **Interactive browser verification (isolated standalone server on port 3100, fresh account):**
+  - Sign-up → dashboard → create blank Word project: worked end to end.
+  - Autosave: edits produced `POST /projects/[id]` → 200; full reload restored both title and body text.
+  - Revisions: revision list populated on real content changes (4 revisions recorded); "Restore" on revision #1 reverted the editor to that revision; the pre-restore state was offered as an unsaved-draft recovery banner.
+  - Draft recovery UX: "Recover draft" re-applied the retained draft; "Keep saved version" discarded it (content stayed at the server version and the draft key was removed from localStorage).
+  - Conflict: with the same project open in two windows, the second window's save succeeded (200) and the first window's subsequent save surfaced the conflict path — "This file changed in another window. Your draft is retained on this device; reload to review the latest version before recovering it." The server kept the newer version; a fresh window offered the recovery banner; "Recover draft" re-applied the stale-window edits and the next autosave succeeded (200) and persisted.
+  - Ctrl+S flush produced an immediate `POST` → 200 with no console errors.
+  - DOCX export via toolbar downloaded `UI Save Test Doc.docx` (9,723 B): valid OOXML (PK zip, `word/document.xml`) containing all latest paragraph texts.
+
+**Not verified in this pass:** installer/packaged executable, real Microsoft Office visual fidelity, PPTX-side interactive flows, performance profiling.
